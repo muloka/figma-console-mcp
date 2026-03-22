@@ -60,6 +60,8 @@ export interface PortFileData {
   startedAt: string;
   /** Updated by heartbeat every 30s. Missing in port files from pre-v1.12 instances. */
   lastSeen?: string;
+  /** Port of the Streamable HTTP MCP server, if enabled via MCP_HTTP_PORT. */
+  mcpHttpPort?: number;
 }
 
 /**
