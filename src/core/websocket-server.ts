@@ -438,6 +438,19 @@ export class FigmaWebSocketServer extends EventEmitter {
         this.emit('consoleLog', entry);
       }
 
+      // Bridge diagnostic events — log for debugging connection issues
+      if (message.type === 'BRIDGE_DIAGNOSTIC') {
+        const data = message.data || {};
+        const detail = data.detail || {};
+        const detailStr = Object.keys(detail).length > 0
+          ? ' ' + JSON.stringify(detail)
+          : '';
+        logger.info(
+          `Bridge diagnostic: ${data.event || 'unknown'}${detailStr} (${data.activeCount ?? '?'} active connections)`
+        );
+        return;
+      }
+
       this.emit('pluginMessage', message);
       return;
     }

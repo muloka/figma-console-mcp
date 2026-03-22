@@ -55,6 +55,14 @@
       background: #f24822;
     }
 
+    .bridge-status.clickable {
+      cursor: pointer;
+    }
+
+    .bridge-status.clickable:hover {
+      border-color: var(--figma-color-text-secondary, rgba(255, 255, 255, 0.5));
+    }
+
     @keyframes pulse {
       0%, 100% { opacity: 0.4; }
       50% { opacity: 1; }
@@ -228,12 +236,26 @@
     let requestIdCounter = 0;
 
     // UI update helper
-    function updateStatus(state, isActive, isError) {
-      const dot = document.getElementById('status-dot');
-      const stateText = document.getElementById('status-state');
+    function updateStatus(state, isActive, isError, tooltip) {
+      var dot = document.getElementById('status-dot');
+      var stateText = document.getElementById('status-state');
+      var container = document.getElementById('status-container');
 
       dot.className = 'status-indicator ' + (isError ? 'error' : (isActive ? 'active' : 'loading'));
       stateText.textContent = state;
+      container.title = tooltip || '';
+
+      if (isError && window.__wsManualRescan) {
+        container.classList.add('clickable');
+        container.onclick = function() {
+          container.classList.remove('clickable');
+          container.onclick = null;
+          window.__wsManualRescan();
+        };
+      } else {
+        container.classList.remove('clickable');
+        container.onclick = null;
+      }
     }
 
     // ============================================================================
@@ -699,6 +721,7 @@
       function wsScanAndConnect() {
         if (isScanning) return;
         isScanning = true;
+        updateStatus('scanning\u2026', false, false, 'Scanning ports ' + WS_PORT_RANGE_START + '-' + WS_PORT_RANGE_END);
 
         var portsToTry = [];
         for (var p = WS_PORT_RANGE_START; p <= WS_PORT_RANGE_END; p++) {
@@ -726,8 +749,12 @@
               activeConnections.push({ port: port, ws: testWs });
               updateCompatState();
               console.log('[MCP Bridge] WebSocket connected to port ' + port + ' (' + activeConnections.length + ' server(s) total)');
+              updateStatus('connected (' + activeConnections.length + ')', true, false,
+                'Port' + (activeConnections.length > 1 ? 's' : '') + ': ' +
+                activeConnections.map(function(c) { return c.port; }).join(', '));
               attachWsHandlers(testWs, port);
               initializeConnection(testWs, port);
+              sendDiagnostic('connected', { port: port });
               pending--;
               if (pending <= 0) {
                 isScanning = false;
@@ -754,6 +781,8 @@
                     setTimeout(wsScanAndConnect, delay);
                   } else {
                     console.log('[MCP Bridge] No MCP servers found after ' + MAX_INITIAL_SCANS + ' scans. Restart plugin to retry.');
+                    updateStatus('disconnected', false, true, 'No MCP servers found. Click to rescan.');
+                    sendDiagnostic('retries_exhausted', { type: 'initial_scan', attempts: initialScanAttempts });
                   }
                 }
               }
@@ -781,8 +810,13 @@
             activeConnections.push({ port: port, ws: testWs });
             updateCompatState();
             console.log('[MCP Bridge] Reconnected to port ' + port + ' (' + activeConnections.length + ' server(s) total)');
+            wsReconnectAttempts = 0;
+            updateStatus('connected (' + activeConnections.length + ')', true, false,
+              'Port' + (activeConnections.length > 1 ? 's' : '') + ': ' +
+              activeConnections.map(function(c) { return c.port; }).join(', '));
             attachWsHandlers(testWs, port);
             initializeConnection(testWs, port);
+            sendDiagnostic('reconnected', { port: port });
           };
 
           testWs.onerror = function() {
@@ -839,7 +873,15 @@
 
         activeWs.onclose = function(event) {
           removeConnection(port);
+          sendDiagnostic('disconnected', { port: port, code: event.code, reason: event.reason });
           console.log('[MCP Bridge] WebSocket disconnected from port ' + port + ' (' + activeConnections.length + ' server(s) remaining)');
+          if (activeConnections.length === 0) {
+            updateStatus('reconnecting\u2026', false, false, 'Lost connection to port ' + port + ', retrying\u2026');
+          } else {
+            updateStatus('connected (' + activeConnections.length + ')', true, false,
+              'Port' + (activeConnections.length > 1 ? 's' : '') + ': ' +
+              activeConnections.map(function(c) { return c.port; }).join(', '));
+          }
 
           // If replaced by same file reconnecting (e.g., plugin reloaded), stop
           var wasReplaced = (event.code === 1000 && (
@@ -856,6 +898,11 @@
           if (wsReconnectAttempts <= 5) {
             var delay = Math.min(1000 * wsReconnectAttempts, 5000);
             setTimeout(function() { wsReconnectPort(port); }, delay);
+          } else {
+            if (activeConnections.length === 0) {
+              updateStatus('disconnected', false, true, 'Lost connection. Click to rescan.');
+            }
+            sendDiagnostic('retries_exhausted', { type: 'reconnect', port: port, attempts: wsReconnectAttempts });
           }
         };
 
@@ -874,6 +921,23 @@
         activeConnections.forEach(function(conn) {
           if (conn.ws.readyState === 1) {
             try { conn.ws.send(json); } catch(e) { /* ignore send errors */ }
+          }
+        });
+      }
+
+      /**
+       * Send a diagnostic event to all connected servers.
+       * Lightweight — servers log these for debugging connection issues.
+       */
+      function sendDiagnostic(event, detail) {
+        broadcastToAll({
+          type: 'BRIDGE_DIAGNOSTIC',
+          data: {
+            event: event,
+            detail: detail || {},
+            timestamp: new Date().toISOString(),
+            activeCount: activeConnections.length,
+            ports: activeConnections.map(function(c) { return c.port; })
           }
         });
       }
@@ -930,6 +994,12 @@
       };
 
       window.__wsGetActiveConnections = function() { return activeConnections; };
+
+      window.__wsManualRescan = function() {
+        initialScanAttempts = 0;
+        wsReconnectAttempts = 0;
+        wsScanAndConnect();
+      };
 
       // Single scan on load — no periodic rescanning to avoid console spam.
       // If no server found, retries up to MAX_INITIAL_SCANS times then stops.
@@ -1073,7 +1143,11 @@
         case 'VARIABLES_DATA':
           window.__figmaVariablesData = msg.data;
           window.__figmaVariablesReady = true;
-          updateStatus('ready', true, false);
+          var ports = (window.__wsGetActiveConnections ? window.__wsGetActiveConnections() : [])
+            .filter(function(c) { return c.ws.readyState === 1; })
+            .map(function(c) { return c.port; });
+          updateStatus('ready', true, false,
+            (ports.length ? 'Connected to port' + (ports.length > 1 ? 's' : '') + ': ' + ports.join(', ') : ''));
           console.log('[MCP Bridge] Active - ' + (msg.data.variables?.length || 0) + ' vars');
           // Forward to WebSocket client if connected
           if (window.__wsForwardVariables) window.__wsForwardVariables(msg.data);

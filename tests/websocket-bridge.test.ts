@@ -240,6 +240,37 @@ describe('FigmaWebSocketServer', () => {
       expect(message.type).toBe('VARIABLES_DATA');
       expect(message.data.variables).toEqual([]);
     });
+
+    test('handles BRIDGE_DIAGNOSTIC without emitting pluginMessage', async () => {
+      server = new FigmaWebSocketServer({ port: TEST_PORT });
+      await server.start();
+
+      const ws = await connectClient(server, TEST_PORT);
+
+      // Listen for pluginMessage — diagnostics should NOT trigger this
+      const pluginMessages: any[] = [];
+      server.on('pluginMessage', (msg: any) => pluginMessages.push(msg));
+
+      // Send a diagnostic event
+      ws.send(JSON.stringify({
+        type: 'BRIDGE_DIAGNOSTIC',
+        data: {
+          event: 'connected',
+          detail: { port: TEST_PORT },
+          timestamp: new Date().toISOString(),
+          activeCount: 1,
+          ports: [TEST_PORT]
+        }
+      }));
+
+      // Give the server a moment to process
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Diagnostic should be handled silently, not forwarded as pluginMessage
+      expect(pluginMessages.filter(m => m.type === 'BRIDGE_DIAGNOSTIC')).toHaveLength(0);
+
+      await closeClient(ws);
+    });
   });
 });
 
