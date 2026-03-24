@@ -902,16 +902,33 @@
               return;
             }
 
-            // Call the handler (returns a Promise) and send back the result
-            Promise.resolve(handler(message.params || {}))
+            // Call the handler with a safety timeout, then send back the result
+            var HANDLER_TIMEOUT_MS = 30000;
+            var handlerSettled = false;
+            var handlerPromise = Promise.resolve(handler(message.params || {}));
+            var timeoutPromise = new Promise(function(_, reject) {
+              setTimeout(function() {
+                if (!handlerSettled) {
+                  reject(new Error('Handler for ' + message.method + ' did not respond within ' + HANDLER_TIMEOUT_MS + 'ms'));
+                }
+              }, HANDLER_TIMEOUT_MS);
+            });
+
+            Promise.race([handlerPromise, timeoutPromise])
               .then(function(result) {
+                handlerSettled = true;
                 if (activeWs.readyState === 1) {
                   activeWs.send(JSON.stringify({ id: message.id, result: result }));
+                } else {
+                  console.warn('[MCP Bridge] WS:' + port + ': Dropping result for ' + message.method + ' (id=' + message.id + ') — socket closed');
                 }
               })
               .catch(function(err) {
+                handlerSettled = true;
                 if (activeWs.readyState === 1) {
                   activeWs.send(JSON.stringify({ id: message.id, error: err.message || String(err) }));
+                } else {
+                  console.warn('[MCP Bridge] WS:' + port + ': Dropping error for ' + message.method + ' (id=' + message.id + ') — socket closed: ' + (err.message || String(err)));
                 }
               });
           } catch (e) {
