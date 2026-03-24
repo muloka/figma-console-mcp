@@ -688,7 +688,12 @@ for (const v of vars) {
     if (v.description) variable.description = v.description;
     if (v.valuesByMode) {
       for (const [modeId, value] of Object.entries(v.valuesByMode)) {
-        const processed = v.resolvedType === 'COLOR' && typeof value === 'string' ? hexToRgba(value) : value;
+        let processed = value;
+        if (typeof value === 'string' && value.startsWith('VariableID:')) {
+          processed = { type: 'VARIABLE_ALIAS', id: value };
+        } else if (v.resolvedType === 'COLOR' && typeof value === 'string') {
+          processed = hexToRgba(value);
+        }
         variable.setValueForMode(modeId, processed);
       }
     }
@@ -982,7 +987,12 @@ for (const t of tokenDefs) {
     for (const [modeName, value] of Object.entries(t.values)) {
       const modeId = modeMap[modeName];
       if (!modeId) { results.push({ success: false, name: t.name, error: 'Unknown mode: ' + modeName }); continue; }
-      const processed = t.resolvedType === 'COLOR' && typeof value === 'string' ? hexToRgba(value) : value;
+      let processed = value;
+      if (typeof value === 'string' && value.startsWith('VariableID:')) {
+        processed = { type: 'VARIABLE_ALIAS', id: value };
+      } else if (t.resolvedType === 'COLOR' && typeof value === 'string') {
+        processed = hexToRgba(value);
+      }
       variable.setValueForMode(modeId, processed);
     }
     results.push({ success: true, name: t.name, id: variable.id });
