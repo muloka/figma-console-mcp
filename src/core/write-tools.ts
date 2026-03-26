@@ -11,6 +11,7 @@ const logger = createChildLogger({ component: "write-tools" });
 export function registerWriteTools(
 	server: McpServer,
 	getDesktopConnector: () => Promise<any>,
+	variablesCache?: Map<string, { data: any; timestamp: number }>,
 ) {
 	// ============================================================================
 	// EXECUTION TOOL
@@ -733,6 +734,9 @@ return {
 						isError: true,
 					};
 				}
+
+				// Invalidate variables cache so next read sees newly created variables
+				if (variablesCache) variablesCache.clear();
 
 				return {
 					content: [

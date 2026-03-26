@@ -2026,9 +2026,6 @@ Layers: If your code creates helper frames, placeholder nodes, or intermediate l
 						value,
 					);
 
-					// Invalidate variables cache so next read sees the change
-					this.variablesCache.clear();
-
 					return {
 						content: [
 							{
@@ -2111,9 +2108,6 @@ Layers: If your code creates helper frames, placeholder nodes, or intermediate l
 							valuesByMode,
 						},
 					);
-
-					// Invalidate variables cache so next read sees the new variable
-					this.variablesCache.clear();
 
 					return {
 						content: [
@@ -2234,9 +2228,6 @@ Layers: If your code creates helper frames, placeholder nodes, or intermediate l
 					const connector = await this.getDesktopConnector();
 					const result = await connector.deleteVariable(variableId);
 
-					// Invalidate variables cache so next read reflects the deletion
-					this.variablesCache.clear();
-
 					return {
 						content: [
 							{
@@ -2291,9 +2282,6 @@ Layers: If your code creates helper frames, placeholder nodes, or intermediate l
 				try {
 					const connector = await this.getDesktopConnector();
 					const result = await connector.deleteVariableCollection(collectionId);
-
-					// Invalidate variables cache so next read reflects the deletion
-					this.variablesCache.clear();
 
 					return {
 						content: [
@@ -2633,9 +2621,6 @@ return {
 						};
 					}
 
-					// Invalidate variables cache so next read sees newly created variables
-					this.variablesCache.clear();
-
 					return {
 						content: [
 							{
@@ -2764,9 +2749,6 @@ return {
 							isError: true,
 						};
 					}
-
-					// Invalidate variables cache so next read sees updated values
-					this.variablesCache.clear();
 
 					return {
 						content: [
@@ -2937,9 +2919,6 @@ return {
 							isError: true,
 						};
 					}
-
-					// Invalidate variables cache so next read sees the new tokens
-					this.variablesCache.clear();
 
 					return {
 						content: [

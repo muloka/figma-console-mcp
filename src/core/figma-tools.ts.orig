@@ -1917,18 +1917,7 @@ export function registerFigmaAPITools(
 						}
 						logger.info({ transport: connector.getTransportType?.() || 'unknown' }, "Desktop connector ready");
 
-						// When refreshCache is true, bypass the plugin UI's internal cache
-						// (window.__figmaVariablesData) by fetching live from the Plugin API
-						// via EXECUTE_CODE → figma.variables.getLocalVariablesAsync()
-						const rawResult = refreshCache
-							? await connector.getVariables(fileKey)
-							: await connector.getVariablesFromPluginUI(fileKey);
-						// getVariables() returns { success, result: { variables, ... } }
-						// (EXECUTE_CODE wraps in .result), while getVariablesFromPluginUI()
-						// returns { success, variables, ... } directly. Normalize the shape.
-						const desktopResult = rawResult.result?.variables
-							? rawResult.result
-							: rawResult;
+						const desktopResult = await connector.getVariablesFromPluginUI(fileKey);
 
 						if (desktopResult.success && desktopResult.variables) {
 							logger.info(
@@ -2149,7 +2138,7 @@ export function registerFigmaAPITools(
 												format: format || 'full',
 												timestamp: dataForCache.timestamp,
 												data: responseData,
-												cached: !refreshCache,
+												cached: true,
 											}
 										),
 									},
