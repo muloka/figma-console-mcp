@@ -16,6 +16,8 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { z } from "zod";
 import { fileURLToPath } from "url";
 import { dirname, resolve, join } from "path";
@@ -49,6 +51,7 @@ import { WebSocketConnector } from "./core/websocket-connector.js";
 import {
 	DEFAULT_WS_PORT,
 	getPortRange,
+	getPortFilePath,
 	advertisePort,
 	unadvertisePort,
 	registerPortCleanup,
@@ -105,55 +108,8 @@ function setupStablePluginDir(sourcePluginDir: string): string | null {
 	}
 }
 
-/**
- * Local MCP Server
- * Connects to Figma Desktop and provides identical tools to Cloudflare mode
- */
-class LocalFigmaConsoleMCP {
-	private server: McpServer;
-	private figmaAPI: FigmaAPI | null = null;
-	private wsServer: FigmaWebSocketServer | null = null;
-	private wsStartupError: { code: string; port: number } | null = null;
-	/** The port the WebSocket server actually bound to (may differ from preferred if fallback occurred) */
-	private wsActualPort: number | null = null;
-	/** The preferred port requested (from env var or default) */
-	private wsPreferredPort: number = DEFAULT_WS_PORT;
-	/** Stops the periodic background reaper (set once the WS port is bound) */
-	private wsReaperStop: (() => void) | null = null;
-	/** Heartbeat timer that refreshes port file to prove this server is active */
-	private wsHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
-	private config = getConfig();
-
-	// In-memory cache for variables data to avoid MCP token limits
-	// Maps fileKey -> {data, timestamp}
-	private variablesCache: Map<
-		string,
-		{
-			data: any;
-			timestamp: number;
-		}
-	> = new Map();
-
-	/**
-	 * Invalidate the variables cache after a write operation.
-	 * Called after any successful variable create/update/delete/batch operation
-	 * to ensure the next figma_get_variables call returns fresh data.
-	 */
-	private invalidateVariablesCache(): void {
-		if (this.variablesCache.size > 0) {
-			this.variablesCache.clear();
-			logger.info('Variables cache invalidated after write operation');
-		}
-	}
-
-	constructor() {
-		this.server = new McpServer(
-			{
-				name: "Figma Console MCP (Local)",
-				version: "0.1.0",
-			},
-			{
-				instructions: `## Figma Console MCP - Visual Design Workflow
+/** Instructions shared by both the stdio and HTTP MCP server instances. */
+const MCP_SERVER_INSTRUCTIONS = `## Figma Console MCP - Visual Design Workflow
 
 This MCP server enables AI-assisted design creation in Figma. Follow these mandatory workflows:
 
@@ -214,7 +170,61 @@ Batch tools are 10-50x faster because they execute in a single roundtrip. Use in
 ### DESIGN BEST PRACTICES
 For component-specific design guidance (sizing, proportions, accessibility, etc.), query the Design Systems Assistant MCP which provides up-to-date best practices for any component type.
 
-If Design Systems Assistant MCP is not available, install it from: https://github.com/southleft/design-systems-mcp`,
+If Design Systems Assistant MCP is not available, install it from: https://github.com/southleft/design-systems-mcp`;
+
+/**
+ * Local MCP Server
+ * Connects to Figma Desktop and provides identical tools to Cloudflare mode
+ */
+class LocalFigmaConsoleMCP {
+	private server: McpServer;
+	private figmaAPI: FigmaAPI | null = null;
+	private wsServer: FigmaWebSocketServer | null = null;
+	private wsStartupError: { code: string; port: number } | null = null;
+	/** The port the WebSocket server actually bound to (may differ from preferred if fallback occurred) */
+	private wsActualPort: number | null = null;
+	/** The preferred port requested (from env var or default) */
+	private wsPreferredPort: number = DEFAULT_WS_PORT;
+	/** Stops the periodic background reaper (set once the WS port is bound) */
+	private wsReaperStop: (() => void) | null = null;
+	/** Heartbeat timer that refreshes port file to prove this server is active */
+	private wsHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
+	/** HTTP server for Streamable HTTP MCP transport (opt-in via MCP_HTTP_PORT) */
+	private httpServer: ReturnType<typeof createServer> | null = null;
+	/** The port the HTTP MCP server is listening on, if enabled */
+	private mcpHttpPort: number | null = null;
+	private config = getConfig();
+
+	// In-memory cache for variables data to avoid MCP token limits
+	// Maps fileKey -> {data, timestamp}
+	private variablesCache: Map<
+		string,
+		{
+			data: any;
+			timestamp: number;
+		}
+	> = new Map();
+
+	/**
+	 * Invalidate the variables cache after a write operation.
+	 * Called after any successful variable create/update/delete/batch operation
+	 * to ensure the next figma_get_variables call returns fresh data.
+	 */
+	private invalidateVariablesCache(): void {
+		if (this.variablesCache.size > 0) {
+			this.variablesCache.clear();
+			logger.info('Variables cache invalidated after write operation');
+		}
+	}
+
+	constructor() {
+		this.server = new McpServer(
+			{
+				name: "Figma Console MCP (Local)",
+				version: "0.1.0",
+			},
+			{
+				instructions: MCP_SERVER_INSTRUCTIONS,
 			},
 		);
 
@@ -424,9 +434,10 @@ If Design Systems Assistant MCP is not available, install it from: https://githu
 	/**
 	 * Register all MCP tools
 	 */
-	private registerTools(): void {
+	private registerTools(target?: McpServer): void {
+		const server = target ?? this.server;
 		// Tool 1: Get Console Logs
-		this.server.tool(
+		server.tool(
 			"figma_get_console_logs",
 			"Retrieve console logs from Figma Desktop. FOR PLUGIN DEVELOPERS: This works immediately - no navigation needed! Just check logs, run your plugin in Figma Desktop, check logs again. All plugin logs ([Main], [Swapper], etc.) appear instantly.",
 			{
@@ -532,7 +543,7 @@ If Design Systems Assistant MCP is not available, install it from: https://githu
 		// Bridge-first: the plugin's exportAsync works on any Figma plan with no REST
 		// token, and reflects the current runtime state (no cloud-sync lag).
 		// Note: For screenshots of specific components, use figma_get_component_image instead
-		this.server.tool(
+		server.tool(
 			"figma_take_screenshot",
 			`Export an image of the current Figma page or specific node. Uses the Desktop Bridge plugin (exportAsync) when connected — works on any plan, no REST token needed, reflects current runtime state. Falls back to the Figma REST API when the bridge is unavailable or for PDF format. Use for visual validation after design changes — check alignment, spacing, proportions. Pass nodeId to target specific elements. For components, prefer figma_get_component_image.`,
 			{
@@ -773,7 +784,7 @@ If Design Systems Assistant MCP is not available, install it from: https://githu
 		);
 
 		// Tool 3: Watch Console (Real-time streaming)
-		this.server.tool(
+		server.tool(
 			"figma_watch_console",
 			"Stream console logs in real-time for a specified duration (max 5 minutes). Use for monitoring plugin execution while user tests manually. Returns all logs captured during watch period with summary statistics. NOT for retrieving past logs (use figma_get_console_logs). Best for: watching plugin output during manual testing, debugging race conditions, monitoring async operations.",
 			{
@@ -838,7 +849,7 @@ If Design Systems Assistant MCP is not available, install it from: https://githu
 		);
 
 		// Tool 4: Reload Plugin
-		this.server.tool(
+		server.tool(
 			"figma_reload_plugin",
 			"Reload the current Figma page/plugin to test code changes. Optionally clears console logs before reload. Use when user says: 'reload plugin', 'refresh page', 'restart plugin', 'test my changes'. Returns reload confirmation and current URL. Best for rapid iteration during plugin development.",
 			{
@@ -919,7 +930,7 @@ If Design Systems Assistant MCP is not available, install it from: https://githu
 		);
 
 		// Tool 5: Clear Console
-		this.server.tool(
+		server.tool(
 			"figma_clear_console",
 			"Clear the console log buffer. Safely clears the buffer without disrupting the connection. Returns number of logs cleared.",
 			{},
@@ -982,7 +993,7 @@ If Design Systems Assistant MCP is not available, install it from: https://githu
 		);
 
 		// Tool 6: Navigate / switch active file
-		this.server.tool(
+		server.tool(
 			"figma_navigate",
 			"Switch the active Figma file target among files that already have the Desktop Bridge plugin running. Local mode is WebSocket-only — this tool does NOT launch a browser or open files. If the requested URL is already the active file, it confirms the connection. If another connected plugin matches the URL, it switches the active target so subsequent tool calls hit that file. If no connected plugin matches, returns guidance for the user to open the Desktop Bridge plugin in the target file. Use figma_list_open_files to see all connected files.",
 			{
@@ -1134,7 +1145,7 @@ If Design Systems Assistant MCP is not available, install it from: https://githu
 		);
 
 		// Tool 7: Get Status (with setup validation)
-		this.server.tool(
+		server.tool(
 			"figma_get_status",
 			"Check connection status to Figma Desktop. Reports transport status and connection health via the Desktop Bridge plugin (WebSocket transport). Use probe:true for an active roundtrip verification that the plugin is actually responding.",
 			{
@@ -1374,7 +1385,7 @@ If Design Systems Assistant MCP is not available, install it from: https://githu
 		// ============================================================================
 
 		// Tool: Force reconnect to Figma Desktop
-		this.server.tool(
+		server.tool(
 			"figma_reconnect",
 			"Force a complete reconnection to Figma Desktop. Use when connection seems stale or after switching files.",
 			{},
@@ -1486,7 +1497,7 @@ If Design Systems Assistant MCP is not available, install it from: https://githu
 		// ============================================================================
 
 		// Tool: Get current user selection in Figma
-		this.server.tool(
+		server.tool(
 			"figma_get_selection",
 			"Get the currently selected nodes in Figma. Returns node IDs, names, types, and dimensions. WebSocket-only — requires Desktop Bridge plugin. Use this to understand what the user is pointing at instead of asking them to describe it.",
 			{
@@ -1591,7 +1602,7 @@ If Design Systems Assistant MCP is not available, install it from: https://githu
 		);
 
 		// Tool: Get recent design changes
-		this.server.tool(
+		server.tool(
 			"figma_get_design_changes",
 			"Get recent document changes detected in Figma. Returns buffered change events including which nodes changed, whether styles were modified, and change counts. WebSocket-only — events are captured via Desktop Bridge plugin. Use this to understand what changed since you last checked.",
 			{
@@ -1675,7 +1686,7 @@ If Design Systems Assistant MCP is not available, install it from: https://githu
 		);
 
 		// Tool: List all open files connected via WebSocket
-		this.server.tool(
+		server.tool(
 			"figma_list_open_files",
 			"List all Figma files currently connected via the Desktop Bridge plugin. Shows which files have the plugin open and which one is the active target for tool calls. Use figma_navigate to switch between files. WebSocket multi-client mode — each file with the Desktop Bridge plugin maintains its own connection.",
 			{},
@@ -1920,7 +1931,7 @@ If Design Systems Assistant MCP is not available, install it from: https://githu
 		// Phase-2 write-tools dedupe excised them along with the surrounding writes.)
 		// ============================================================================
 
-		this.server.tool(
+		server.tool(
 			"figma_get_design_system_summary",
 			"Get a compact overview of the design system. Returns categories, component counts, and token collection names WITHOUT full details. Use this first to understand what's available, then use figma_search_components to find specific components. This tool is optimized for minimal token usage.",
 			{
@@ -2158,7 +2169,7 @@ If Design Systems Assistant MCP is not available, install it from: https://githu
 		);
 
 		// Tool 2: Search Components (~3000 tokens response max, paginated)
-		this.server.tool(
+		server.tool(
 			"figma_search_components",
 			`Search for components by name, category, or description. Returns paginated results with component keys for instantiation. Automatically loads the design system cache if needed.
 
@@ -2432,7 +2443,7 @@ Without libraryFileKey/libraryFileUrl, searches the currently open file (local c
 		);
 
 		// Tool 3: Get Component Details (~500 tokens per component)
-		this.server.tool(
+		server.tool(
 			"figma_get_component_details",
 			"Get full details for a specific component including all variants, properties, and keys needed for instantiation. Use the component key or name from figma_search_components.",
 			{
@@ -2573,7 +2584,7 @@ Without libraryFileKey/libraryFileUrl, searches the currently open file (local c
 		);
 
 		// Tool 4: Get Token Values (~2000 tokens response max)
-		this.server.tool(
+		server.tool(
 			"figma_get_token_values",
 			"Get actual values for design tokens (colors, spacing, etc). Use after figma_get_design_system_summary to get specific token values for implementation.",
 			{
@@ -2690,7 +2701,7 @@ Without libraryFileKey/libraryFileUrl, searches the currently open file (local c
 		);
 
 		// Tool 5: Instantiate Component
-		this.server.tool(
+		server.tool(
 			"figma_get_library_components",
 			`Discover published components from a shared/team library file.
 
@@ -3023,18 +3034,18 @@ Without libraryFileKey/libraryFileUrl, searches the currently open file (local c
 		// Register all write/manipulation tools (figma_execute, variable CRUD, node mutations,
 		// design-token setup, accessibility audits, etc.). Sourced from src/core/write-tools.ts
 		// so local mode and cloud mode share the same 30 implementations — no risk of drift.
-		registerWriteTools(this.server, () => this.getDesktopConnector());
+		registerWriteTools(server, () => this.getDesktopConnector());
 
 		// Register token sync tools — figma_export_tokens and figma_import_tokens.
 		// Replace Style Dictionary and Tokens Studio's export pipeline for the
 		// popular styling methods (DTCG canonical — legacy + 2025.10 dialects —
 		// plus CSS/Tailwind/SCSS/TS/JSON/Style Dictionary/Tokens Studio, all
 		// derived from a single internal token model).
-		registerTokensTools(this.server, () => this.getDesktopConnector());
+		registerTokensTools(server, () => this.getDesktopConnector());
 
 		// Register Figma API tools (Tools 8-11)
 		registerFigmaAPITools(
-			this.server,
+			server,
 			() => this.getFigmaAPI(),
 			() => this.getCurrentFileUrl(),
 			this.variablesCache, // Pass cache for efficient variable queries
@@ -3044,7 +3055,7 @@ Without libraryFileKey/libraryFileUrl, searches the currently open file (local c
 
 		// Register Design-Code Parity & Documentation tools
 		registerDesignCodeTools(
-			this.server,
+			server,
 			() => this.getFigmaAPI(),
 			() => this.getCurrentFileUrl(),
 			this.variablesCache,
@@ -3054,14 +3065,14 @@ Without libraryFileKey/libraryFileUrl, searches the currently open file (local c
 
 		// Register Comment tools
 		registerCommentTools(
-			this.server,
+			server,
 			() => this.getFigmaAPI(),
 			() => this.getCurrentFileUrl(),
 		);
 
 		// Register Version History tools
 		registerVersionTools(
-			this.server,
+			server,
 			() => this.getFigmaAPI(),
 			() => this.getCurrentFileUrl(),
 			undefined, // options
@@ -3081,7 +3092,7 @@ Without libraryFileKey/libraryFileUrl, searches the currently open file (local c
 
 		// Register Design System Kit tool
 		registerDesignSystemTools(
-			this.server,
+			server,
 			() => this.getFigmaAPI(),
 			() => this.getCurrentFileUrl(),
 			this.variablesCache,
@@ -3090,20 +3101,20 @@ Without libraryFileKey/libraryFileUrl, searches the currently open file (local c
 		);
 
 		// Register Library Tools (key-based component inspection across shared libraries)
-		registerLibraryTools(this.server, () => this.getFigmaAPI());
+		registerLibraryTools(server, () => this.getFigmaAPI());
 
 		// Register Library Variable Tools (Plugin-API based — list + import variables
 		// from subscribed team libraries; works on every Figma plan, no Enterprise needed)
-		registerLibraryVariableTools(this.server, () => this.getDesktopConnector());
+		registerLibraryVariableTools(server, () => this.getDesktopConnector());
 
 		// Register code-side accessibility scanning (axe-core + JSDOM)
-		registerAccessibilityTools(this.server);
+		registerAccessibilityTools(server);
 
 		// Register figma_diagnose — designer-readable health check + cross-MCP disambiguator.
 		// This is the first tool to point a confused user at: it self-identifies the server,
 		// reports plugin/token state in plain language, and explicitly disclaims any
 		// token/OAuth error that may have been emitted by a different Figma-related MCP.
-		registerDiagnoseTool(this.server, {
+		registerDiagnoseTool(server, {
 			mode: "local",
 			getServerVersion: () => {
 				try {
@@ -3139,36 +3150,36 @@ Without libraryFileKey/libraryFileUrl, searches the currently open file (local c
 
 		// Register Annotation tools (read/write design annotations via Desktop Bridge)
 		registerAnnotationTools(
-			this.server,
+			server,
 			() => this.getDesktopConnector(),
 		);
 
 		// Register Deep Component tools (full Plugin API tree extraction for code generation)
 		registerDeepComponentTools(
-			this.server,
+			server,
 			() => this.getDesktopConnector(),
 		);
 
 		// Register FigJam-specific tools (sticky notes, connectors, tables, etc.)
 		registerFigJamTools(
-			this.server,
+			server,
 			() => this.getDesktopConnector(),
 		);
 
 		// Register Figma Slides tools (slide management, transitions, content)
 		registerSlidesTools(
-			this.server,
+			server,
 			() => this.getDesktopConnector(),
 		);
 
 		registerSlotTools(
-			this.server,
+			server,
 			() => this.getDesktopConnector(),
 		);
 
 		// MCP Apps - gated behind ENABLE_MCP_APPS env var
 		if (process.env.ENABLE_MCP_APPS === "true") {
-			registerTokenBrowserApp(this.server, async (fileUrl?: string) => {
+			registerTokenBrowserApp(server, async (fileUrl?: string) => {
 				const url = fileUrl || this.getCurrentFileUrl();
 				if (!url) {
 					throw new Error(
@@ -3292,7 +3303,7 @@ Without libraryFileKey/libraryFileUrl, searches the currently open file (local c
 			});
 
 			registerDesignSystemDashboardApp(
-				this.server,
+				server,
 				async (fileUrl?: string) => {
 					const url = fileUrl || this.getCurrentFileUrl();
 					if (!url) {
@@ -3519,6 +3530,79 @@ Without libraryFileKey/libraryFileUrl, searches the currently open file (local c
 	}
 
 	/**
+	 * Start an optional Streamable HTTP MCP server.
+	 * Only starts if MCP_HTTP_PORT env var is set. This provides an HTTP-based
+	 * transport alongside the default stdio transport, useful for HTTP-native
+	 * clients (Cursor, web UIs, etc.).
+	 */
+	private async startHttpServer(): Promise<void> {
+		const portStr = process.env.MCP_HTTP_PORT;
+		if (!portStr) return;
+
+		const port = parseInt(portStr, 10);
+		if (isNaN(port) || port < 1 || port > 65535) {
+			logger.warn({ portStr }, "Invalid MCP_HTTP_PORT, skipping HTTP server");
+			return;
+		}
+
+		this.httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+			const url = new URL(req.url ?? "/", `http://localhost:${port}`);
+
+			if (url.pathname === "/mcp") {
+				try {
+					// The MCP SDK enforces one-request-per-transport in stateless mode
+					// ("Stateless transport cannot be reused across requests"), so we
+					// create a fresh transport + server per request — same pattern as
+					// the Cloudflare entry point (src/index.ts).
+					const transport = new StreamableHTTPServerTransport({
+						sessionIdGenerator: undefined,
+					});
+					const reqServer = new McpServer(
+						{ name: "Figma Console MCP (Local)", version: "0.1.0" },
+						{ instructions: MCP_SERVER_INSTRUCTIONS },
+					);
+					this.registerTools(reqServer);
+					wrapServerForIdentity(reqServer);
+					await reqServer.connect(transport);
+					await transport.handleRequest(req, res);
+				} catch (error) {
+					logger.error({ error }, "Error handling HTTP MCP request");
+					if (!res.headersSent) {
+						res.writeHead(500, { "Content-Type": "application/json" });
+						res.end(JSON.stringify({ error: "Internal server error" }));
+					}
+				}
+				return;
+			}
+
+			if (url.pathname === "/" && req.method === "GET") {
+				res.writeHead(200, { "Content-Type": "application/json" });
+				res.end(JSON.stringify({
+					status: "ok",
+					mode: "local",
+					mcpEndpoint: "/mcp",
+					wsPort: this.wsActualPort,
+					mcpHttpPort: port,
+				}));
+				return;
+			}
+
+			res.writeHead(404);
+			res.end("Not Found");
+		});
+
+		await new Promise<void>((resolve, reject) => {
+			this.httpServer!.once("error", reject);
+			this.httpServer!.listen(port, "127.0.0.1", () => {
+				this.httpServer!.removeListener("error", reject);
+				this.mcpHttpPort = port;
+				logger.info({ port }, `Streamable HTTP MCP listening on http://localhost:${port}/mcp`);
+				resolve();
+			});
+		});
+	}
+
+	/**
 	 * Start the MCP server
 	 */
 	async start(): Promise<void> {
@@ -3741,6 +3825,20 @@ Without libraryFileKey/libraryFileUrl, searches the currently open file (local c
 			// Register all tools
 			this.registerTools();
 
+			// Start optional Streamable HTTP MCP server (if MCP_HTTP_PORT is set)
+			await this.startHttpServer();
+
+			// Update port discovery file with HTTP port if both WS and HTTP are active
+			if (this.mcpHttpPort && this.wsActualPort) {
+				const portFilePath = getPortFilePath(this.wsActualPort);
+				try {
+					const raw = readFileSync(portFilePath, 'utf-8');
+					const data = JSON.parse(raw);
+					data.mcpHttpPort = this.mcpHttpPort;
+					writeFileSync(portFilePath, JSON.stringify(data, null, 2));
+				} catch { /* best-effort — port file update is non-critical */ }
+			}
+
 			// Create stdio transport
 			const transport = new StdioServerTransport();
 
@@ -3787,6 +3885,11 @@ Without libraryFileKey/libraryFileUrl, searches the currently open file (local c
 			// Clean up port advertisement before stopping the server
 			if (this.wsActualPort) {
 				unadvertisePort(this.wsActualPort);
+			}
+
+			if (this.httpServer) {
+				this.httpServer.close();
+				this.httpServer = null;
 			}
 
 			if (this.wsServer) {
