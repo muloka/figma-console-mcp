@@ -727,7 +727,12 @@ for (const v of vars) {
     if (v.description) variable.description = v.description;
     if (v.valuesByMode) {
       for (const [modeId, value] of Object.entries(v.valuesByMode)) {
-        const processed = v.resolvedType === 'COLOR' && typeof value === 'string' ? hexToRgba(value) : value;
+        let processed = value;
+        if (typeof value === 'string' && value.startsWith('VariableID:')) {
+          processed = { type: 'VARIABLE_ALIAS', id: value };
+        } else if (v.resolvedType === 'COLOR' && typeof value === 'string') {
+          processed = hexToRgba(value);
+        }
         variable.setValueForMode(modeId, processed);
       }
     }
@@ -970,7 +975,7 @@ return {
 								z.union([z.string(), z.number(), z.boolean()]),
 							)
 							.describe(
-								"Values keyed by mode NAME (not ID). Example: { 'Light': '#FFFFFF', 'Dark': '#000000' }. A string value wrapped in braces is an ALIAS reference resolved to another variable: '{color.blue.600}' matches variable name 'color/blue/600' — first among variables created in THIS call, then existing local variables (exact match, then case-insensitive). Set-qualified references ('{primitives.color.blue.600}') strip the leading collection name. Unresolvable references skip that value and surface in the response's warnings[].",
+								"Values keyed by mode NAME (not ID). Example: { 'Light': '#FFFFFF', 'Dark': '#000000' }. A string value wrapped in braces is an ALIAS reference resolved to another variable: '{color.blue.600}' matches variable name 'color/blue/600' — first among variables created in THIS call, then existing local variables (exact match, then case-insensitive). Set-qualified references ('{primitives.color.blue.600}') strip the leading collection name. Unresolvable references skip that value and surface in the response's warnings[]. A string starting with 'VariableID:' (e.g. from figma_get_variables) aliases that variable directly by id.",
 							),
 					}),
 				)
@@ -1118,6 +1123,8 @@ for (const entry of createdDefs) {
           continue;
         }
         variable.setValueForMode(modeId, figma.variables.createVariableAlias(target));
+      } else if (typeof value === 'string' && value.startsWith('VariableID:')) {
+        variable.setValueForMode(modeId, { type: 'VARIABLE_ALIAS', id: value });
       } else {
         const processed = t.resolvedType === 'COLOR' && typeof value === 'string' ? hexToRgba(value) : value;
         variable.setValueForMode(modeId, processed);
