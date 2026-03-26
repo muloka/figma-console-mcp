@@ -16,6 +16,8 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { z } from "zod";
 import { fileURLToPath } from "url";
 import { dirname, resolve, join } from "path";
@@ -44,6 +46,7 @@ import { WebSocketConnector } from "./core/websocket-connector.js";
 import {
 	DEFAULT_WS_PORT,
 	getPortRange,
+	getPortFilePath,
 	advertisePort,
 	unadvertisePort,
 	registerPortCleanup,
@@ -98,44 +101,8 @@ function setupStablePluginDir(sourcePluginDir: string): string | null {
 	}
 }
 
-/**
- * Local MCP Server
- * Connects to Figma Desktop and provides identical tools to Cloudflare mode
- */
-class LocalFigmaConsoleMCP {
-	private server: McpServer;
-	private browserManager: LocalBrowserManager | null = null;
-	private consoleMonitor: ConsoleMonitor | null = null;
-	private figmaAPI: FigmaAPI | null = null;
-	private desktopConnector: IFigmaConnector | null = null;
-	private wsServer: FigmaWebSocketServer | null = null;
-	private wsStartupError: { code: string; port: number } | null = null;
-	/** The port the WebSocket server actually bound to (may differ from preferred if fallback occurred) */
-	private wsActualPort: number | null = null;
-	/** The preferred port requested (from env var or default) */
-	private wsPreferredPort: number = DEFAULT_WS_PORT;
-	/** Heartbeat timer that refreshes port file to prove this server is active */
-	private wsHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
-	private config = getConfig();
-
-	// In-memory cache for variables data to avoid MCP token limits
-	// Maps fileKey -> {data, timestamp}
-	private variablesCache: Map<
-		string,
-		{
-			data: any;
-			timestamp: number;
-		}
-	> = new Map();
-
-	constructor() {
-		this.server = new McpServer(
-			{
-				name: "Figma Console MCP (Local)",
-				version: "0.1.0",
-			},
-			{
-				instructions: `## Figma Console MCP - Visual Design Workflow
+/** Instructions shared by both the stdio and HTTP MCP server instances. */
+const MCP_SERVER_INSTRUCTIONS = `## Figma Console MCP - Visual Design Workflow
 
 This MCP server enables AI-assisted design creation in Figma. Follow these mandatory workflows:
 
@@ -196,7 +163,50 @@ Batch tools are 10-50x faster because they execute in a single roundtrip. Use in
 ### DESIGN BEST PRACTICES
 For component-specific design guidance (sizing, proportions, accessibility, etc.), query the Design Systems Assistant MCP which provides up-to-date best practices for any component type.
 
-If Design Systems Assistant MCP is not available, install it from: https://github.com/southleft/design-systems-mcp`,
+If Design Systems Assistant MCP is not available, install it from: https://github.com/southleft/design-systems-mcp`;
+
+/**
+ * Local MCP Server
+ * Connects to Figma Desktop and provides identical tools to Cloudflare mode
+ */
+class LocalFigmaConsoleMCP {
+	private server: McpServer;
+	private browserManager: LocalBrowserManager | null = null;
+	private consoleMonitor: ConsoleMonitor | null = null;
+	private figmaAPI: FigmaAPI | null = null;
+	private desktopConnector: IFigmaConnector | null = null;
+	private wsServer: FigmaWebSocketServer | null = null;
+	private wsStartupError: { code: string; port: number } | null = null;
+	/** The port the WebSocket server actually bound to (may differ from preferred if fallback occurred) */
+	private wsActualPort: number | null = null;
+	/** The preferred port requested (from env var or default) */
+	private wsPreferredPort: number = DEFAULT_WS_PORT;
+	/** Heartbeat timer that refreshes port file to prove this server is active */
+	private wsHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
+	/** HTTP server for Streamable HTTP MCP transport (opt-in via MCP_HTTP_PORT) */
+	private httpServer: ReturnType<typeof createServer> | null = null;
+	/** The port the HTTP MCP server is listening on, if enabled */
+	private mcpHttpPort: number | null = null;
+	private config = getConfig();
+
+	// In-memory cache for variables data to avoid MCP token limits
+	// Maps fileKey -> {data, timestamp}
+	private variablesCache: Map<
+		string,
+		{
+			data: any;
+			timestamp: number;
+		}
+	> = new Map();
+
+	constructor() {
+		this.server = new McpServer(
+			{
+				name: "Figma Console MCP (Local)",
+				version: "0.1.0",
+			},
+			{
+				instructions: MCP_SERVER_INSTRUCTIONS,
 			},
 		);
 	}
@@ -525,9 +535,10 @@ If Design Systems Assistant MCP is not available, install it from: https://githu
 	/**
 	 * Register all MCP tools
 	 */
-	private registerTools(): void {
+	private registerTools(target?: McpServer): void {
+		const server = target ?? this.server;
 		// Tool 1: Get Console Logs
-		this.server.tool(
+		server.tool(
 			"figma_get_console_logs",
 			"Retrieve console logs from Figma Desktop. FOR PLUGIN DEVELOPERS: This works immediately - no navigation needed! Just check logs, run your plugin in Figma Desktop, check logs again. All plugin logs ([Main], [Swapper], etc.) appear instantly.",
 			{
@@ -646,7 +657,7 @@ If Design Systems Assistant MCP is not available, install it from: https://githu
 
 		// Tool 2: Take Screenshot (using Figma REST API)
 		// Note: For screenshots of specific components, use figma_get_component_image instead
-		this.server.tool(
+		server.tool(
 			"figma_take_screenshot",
 			`Export an image of the current Figma page or specific node via REST API. Returns an image URL (valid 30 days). Use for visual validation after design changes — check alignment, spacing, proportions. Pass nodeId to target specific elements. For components, prefer figma_get_component_image.`,
 			{
@@ -794,7 +805,7 @@ If Design Systems Assistant MCP is not available, install it from: https://githu
 		);
 
 		// Tool 3: Watch Console (Real-time streaming)
-		this.server.tool(
+		server.tool(
 			"figma_watch_console",
 			"Stream console logs in real-time for a specified duration (max 5 minutes). Use for monitoring plugin execution while user tests manually. Returns all logs captured during watch period with summary statistics. NOT for retrieving past logs (use figma_get_console_logs). Best for: watching plugin output during manual testing, debugging race conditions, monitoring async operations.",
 			{
@@ -875,7 +886,7 @@ If Design Systems Assistant MCP is not available, install it from: https://githu
 		);
 
 		// Tool 4: Reload Plugin
-		this.server.tool(
+		server.tool(
 			"figma_reload_plugin",
 			"Reload the current Figma page/plugin to test code changes. Optionally clears console logs before reload. Use when user says: 'reload plugin', 'refresh page', 'restart plugin', 'test my changes'. Returns reload confirmation and current URL. Best for rapid iteration during plugin development.",
 			{
@@ -972,7 +983,7 @@ If Design Systems Assistant MCP is not available, install it from: https://githu
 		);
 
 		// Tool 5: Clear Console
-		this.server.tool(
+		server.tool(
 			"figma_clear_console",
 			"Clear the console log buffer. Safely clears the buffer without disrupting the connection. Returns number of logs cleared.",
 			{},
@@ -1043,7 +1054,7 @@ If Design Systems Assistant MCP is not available, install it from: https://githu
 		);
 
 		// Tool 6: Navigate to Figma
-		this.server.tool(
+		server.tool(
 			"figma_navigate",
 			"Navigate browser to a Figma URL and start console monitoring. ALWAYS use this first when starting a new debugging session or switching files. Initializes browser connection and begins capturing console logs. Use when user provides a Figma URL or says: 'open this file', 'debug this design', 'switch to'. Returns navigation status and current URL. If the file is already open in a tab, switches to it without reloading.",
 			{
@@ -1249,7 +1260,7 @@ If Design Systems Assistant MCP is not available, install it from: https://githu
 		);
 
 		// Tool 7: Get Status (with setup validation)
-		this.server.tool(
+		server.tool(
 			"figma_get_status",
 			"Check connection status to Figma Desktop. Reports transport status and connection health via the Desktop Bridge plugin (WebSocket transport).",
 			{},
@@ -1426,7 +1437,7 @@ If Design Systems Assistant MCP is not available, install it from: https://githu
 		// ============================================================================
 
 		// Tool: Force reconnect to Figma Desktop
-		this.server.tool(
+		server.tool(
 			"figma_reconnect",
 			"Force a complete reconnection to Figma Desktop. Use when connection seems stale or after switching files.",
 			{},
@@ -1532,7 +1543,7 @@ If Design Systems Assistant MCP is not available, install it from: https://githu
 		// ============================================================================
 
 		// Tool: Get current user selection in Figma
-		this.server.tool(
+		server.tool(
 			"figma_get_selection",
 			"Get the currently selected nodes in Figma. Returns node IDs, names, types, and dimensions. WebSocket-only — requires Desktop Bridge plugin. Use this to understand what the user is pointing at instead of asking them to describe it.",
 			{
@@ -1637,7 +1648,7 @@ If Design Systems Assistant MCP is not available, install it from: https://githu
 		);
 
 		// Tool: Get recent design changes
-		this.server.tool(
+		server.tool(
 			"figma_get_design_changes",
 			"Get recent document changes detected in Figma. Returns buffered change events including which nodes changed, whether styles were modified, and change counts. WebSocket-only — events are captured via Desktop Bridge plugin. Use this to understand what changed since you last checked.",
 			{
@@ -1721,7 +1732,7 @@ If Design Systems Assistant MCP is not available, install it from: https://githu
 		);
 
 		// Tool: List all open files connected via WebSocket
-		this.server.tool(
+		server.tool(
 			"figma_list_open_files",
 			"List all Figma files currently connected via the Desktop Bridge plugin. Shows which files have the plugin open and which one is the active target for tool calls. Use figma_navigate to switch between files. WebSocket multi-client mode — each file with the Desktop Bridge plugin maintains its own connection.",
 			{},
@@ -1807,7 +1818,7 @@ If Design Systems Assistant MCP is not available, install it from: https://githu
 		// ============================================================================
 
 		// Tool: Execute arbitrary code in Figma plugin context (Power Tool)
-		this.server.tool(
+		server.tool(
 			"figma_execute",
 			`Execute arbitrary JavaScript in Figma's plugin context with full access to the figma API. Use for complex operations not covered by other tools. Requires Desktop Bridge plugin. CAUTION: Can modify your document.
 
@@ -1997,7 +2008,7 @@ Layers: If your code creates helper frames, placeholder nodes, or intermediate l
 		);
 
 		// Tool: Update a variable's value
-		this.server.tool(
+		server.tool(
 			"figma_update_variable",
 			"Update a single variable's value. For multiple updates, use figma_batch_update_variables instead (10-50x faster). Use figma_get_variables first for IDs. COLOR: hex '#FF0000', FLOAT: number, STRING: text, BOOLEAN: true/false. Requires Desktop Bridge plugin.",
 			{
@@ -2067,7 +2078,7 @@ Layers: If your code creates helper frames, placeholder nodes, or intermediate l
 		);
 
 		// Tool: Create a new variable
-		this.server.tool(
+		server.tool(
 			"figma_create_variable",
 			"Create a single Figma variable. For multiple variables, use figma_batch_create_variables instead (10-50x faster). Use figma_get_variables first to get collection IDs. Supports COLOR, FLOAT, STRING, BOOLEAN. Requires Desktop Bridge plugin.",
 			{
@@ -2153,7 +2164,7 @@ Layers: If your code creates helper frames, placeholder nodes, or intermediate l
 		);
 
 		// Tool: Create a new variable collection
-		this.server.tool(
+		server.tool(
 			"figma_create_variable_collection",
 			"Create an empty variable collection. To create a collection WITH variables and modes in one step, use figma_setup_design_tokens instead. Requires Desktop Bridge plugin.",
 			{
@@ -2219,7 +2230,7 @@ Layers: If your code creates helper frames, placeholder nodes, or intermediate l
 		);
 
 		// Tool: Delete a variable
-		this.server.tool(
+		server.tool(
 			"figma_delete_variable",
 			"Delete a Figma variable. WARNING: This is a destructive operation that cannot be undone (except with Figma's undo). Use figma_get_variables first to get variable IDs. Requires the Desktop Bridge plugin to be running.",
 			{
@@ -2277,7 +2288,7 @@ Layers: If your code creates helper frames, placeholder nodes, or intermediate l
 		);
 
 		// Tool: Delete a variable collection
-		this.server.tool(
+		server.tool(
 			"figma_delete_variable_collection",
 			"Delete a Figma variable collection and ALL its variables. WARNING: This is a destructive operation that deletes all variables in the collection and cannot be undone (except with Figma's undo). Requires the Desktop Bridge plugin to be running.",
 			{
@@ -2335,7 +2346,7 @@ Layers: If your code creates helper frames, placeholder nodes, or intermediate l
 		);
 
 		// Tool: Rename a variable
-		this.server.tool(
+		server.tool(
 			"figma_rename_variable",
 			"Rename an existing Figma variable. This updates the variable's name while preserving all its values and settings. Requires the Desktop Bridge plugin to be running.",
 			{
@@ -2394,7 +2405,7 @@ Layers: If your code creates helper frames, placeholder nodes, or intermediate l
 		);
 
 		// Tool: Add a mode to a collection
-		this.server.tool(
+		server.tool(
 			"figma_add_mode",
 			"Add a new mode to an existing Figma variable collection. Modes allow variables to have different values for different contexts (e.g., Light/Dark themes, device sizes). Requires the Desktop Bridge plugin to be running.",
 			{
@@ -2453,7 +2464,7 @@ Layers: If your code creates helper frames, placeholder nodes, or intermediate l
 		);
 
 		// Tool: Rename a mode in a collection
-		this.server.tool(
+		server.tool(
 			"figma_rename_mode",
 			"Rename an existing mode in a Figma variable collection. Requires the Desktop Bridge plugin to be running.",
 			{
@@ -2528,7 +2539,7 @@ Layers: If your code creates helper frames, placeholder nodes, or intermediate l
 		// Use these instead of calling individual tools repeatedly.
 
 		// Tool: Batch create variables
-		this.server.tool(
+		server.tool(
 			"figma_batch_create_variables",
 			"Create multiple variables in one operation. Use instead of calling figma_create_variable repeatedly — up to 50x faster for bulk operations. Get collection IDs from figma_get_variables first. Requires Desktop Bridge plugin.",
 			{
@@ -2676,7 +2687,7 @@ return {
 		);
 
 		// Tool: Batch update variables
-		this.server.tool(
+		server.tool(
 			"figma_batch_update_variables",
 			"Update multiple variable values in one operation. Use instead of calling figma_update_variable repeatedly — up to 50x faster for bulk updates. Get variable/mode IDs from figma_get_variables first. Requires Desktop Bridge plugin.",
 			{
@@ -2808,7 +2819,7 @@ return {
 		);
 
 		// Tool: Setup design tokens (collection + modes + variables atomically)
-		this.server.tool(
+		server.tool(
 			"figma_setup_design_tokens",
 			"Create a complete design token structure in one operation: collection, modes, and all variables. Ideal for importing CSS custom properties or design tokens into Figma. Requires Desktop Bridge plugin.",
 			{
@@ -3129,7 +3140,7 @@ return {
 		};
 
 		// Tool 1: Get Design System Summary (~1000 tokens response)
-		this.server.tool(
+		server.tool(
 			"figma_get_design_system_summary",
 			"Get a compact overview of the design system. Returns categories, component counts, and token collection names WITHOUT full details. Use this first to understand what's available, then use figma_search_components to find specific components. This tool is optimized for minimal token usage.",
 			{
@@ -3351,7 +3362,7 @@ return {
 		);
 
 		// Tool 2: Search Components (~3000 tokens response max, paginated)
-		this.server.tool(
+		server.tool(
 			"figma_search_components",
 			`Search for components by name, category, or description. Returns paginated results with component keys for instantiation. Automatically loads the design system cache if needed.
 
@@ -3613,7 +3624,7 @@ Without libraryFileKey/libraryFileUrl, searches the currently open file (local c
 		);
 
 		// Tool 3: Get Component Details (~500 tokens per component)
-		this.server.tool(
+		server.tool(
 			"figma_get_component_details",
 			"Get full details for a specific component including all variants, properties, and keys needed for instantiation. Use the component key or name from figma_search_components.",
 			{
@@ -3752,7 +3763,7 @@ Without libraryFileKey/libraryFileUrl, searches the currently open file (local c
 		);
 
 		// Tool 4: Get Token Values (~2000 tokens response max)
-		this.server.tool(
+		server.tool(
 			"figma_get_token_values",
 			"Get actual values for design tokens (colors, spacing, etc). Use after figma_get_design_system_summary to get specific token values for implementation.",
 			{
@@ -3869,7 +3880,7 @@ Without libraryFileKey/libraryFileUrl, searches the currently open file (local c
 		);
 
 		// Tool 5: Instantiate Component
-		this.server.tool(
+		server.tool(
 			"figma_instantiate_component",
 			`Create an instance of a component from the design system — works with BOTH local and published library components.
 
@@ -3991,7 +4002,7 @@ After instantiating components, use figma_take_screenshot to verify the result l
 		// ============================================================================
 		// Tool 6: Get Library Components (Cross-file published library access)
 		// ============================================================================
-		this.server.tool(
+		server.tool(
 			"figma_get_library_components",
 			`Discover published components from a shared/team library file.
 
@@ -4321,7 +4332,7 @@ After instantiating components, use figma_take_screenshot to verify the result l
 		// ============================================================================
 
 		// Tool: Set Node Description
-		this.server.tool(
+		server.tool(
 			"figma_set_description",
 			"Set the description text on a component, component set, or style. Descriptions appear in Dev Mode and help document design intent. Supports plain text and markdown formatting.",
 			{
@@ -4385,7 +4396,7 @@ After instantiating components, use figma_take_screenshot to verify the result l
 		);
 
 		// Tool: Add Component Property
-		this.server.tool(
+		server.tool(
 			"figma_add_component_property",
 			"Add a new component property to a component or component set. Properties enable dynamic content and behavior in component instances. Supported types: BOOLEAN (toggle), TEXT (string), INSTANCE_SWAP (component swap), VARIANT (variant selection).",
 			{
@@ -4457,7 +4468,7 @@ After instantiating components, use figma_take_screenshot to verify the result l
 		);
 
 		// Tool: Edit Component Property
-		this.server.tool(
+		server.tool(
 			"figma_edit_component_property",
 			"Edit an existing component property. Can change the name, default value, or preferred values (for INSTANCE_SWAP). Use the full property name including the unique suffix.",
 			{
@@ -4536,7 +4547,7 @@ After instantiating components, use figma_take_screenshot to verify the result l
 		);
 
 		// Tool: Delete Component Property
-		this.server.tool(
+		server.tool(
 			"figma_delete_component_property",
 			"Delete a component property. Only works with BOOLEAN, TEXT, and INSTANCE_SWAP properties (not VARIANT). This is a destructive operation.",
 			{
@@ -4598,7 +4609,7 @@ After instantiating components, use figma_take_screenshot to verify the result l
 		// ============================================================================
 
 		// Tool: Resize Node
-		this.server.tool(
+		server.tool(
 			"figma_resize_node",
 			"Resize a node to specific dimensions. By default respects child constraints; use withConstraints=false to ignore them.",
 			{
@@ -4662,7 +4673,7 @@ After instantiating components, use figma_take_screenshot to verify the result l
 		);
 
 		// Tool: Move Node
-		this.server.tool(
+		server.tool(
 			"figma_move_node",
 			"Move a node to a new position within its parent.",
 			{
@@ -4714,7 +4725,7 @@ After instantiating components, use figma_take_screenshot to verify the result l
 		);
 
 		// Tool: Set Node Fills
-		this.server.tool(
+		server.tool(
 			"figma_set_fills",
 			"Set the fill colors on a node. Accepts hex color strings (e.g., '#FF0000') or full paint objects.",
 			{
@@ -4782,7 +4793,7 @@ After instantiating components, use figma_take_screenshot to verify the result l
 		);
 
 		// Tool: Set Image Fill on nodes
-		this.server.tool(
+		server.tool(
 			"figma_set_image_fill",
 			"Set an image fill on one or more Figma nodes. The imageData parameter accepts EITHER a base64-encoded " +
 			"image string (JPEG/PNG) OR an absolute file path starting with / (e.g. /tmp/photo.jpg). " +
@@ -4841,7 +4852,7 @@ After instantiating components, use figma_take_screenshot to verify the result l
 		);
 
 		// Tool: Set Node Strokes
-		this.server.tool(
+		server.tool(
 			"figma_set_strokes",
 			"Set the stroke (border) on a node. Accepts hex color strings and optional stroke weight.",
 			{
@@ -4908,7 +4919,7 @@ After instantiating components, use figma_take_screenshot to verify the result l
 		);
 
 		// Tool: Clone Node
-		this.server.tool(
+		server.tool(
 			"figma_clone_node",
 			"Duplicate a node. The clone is placed at a slight offset from the original.",
 			{
@@ -4958,7 +4969,7 @@ After instantiating components, use figma_take_screenshot to verify the result l
 		);
 
 		// Tool: Delete Node
-		this.server.tool(
+		server.tool(
 			"figma_delete_node",
 			"Delete a node from the canvas. WARNING: This is a destructive operation (can be undone with Figma's undo).",
 			{
@@ -5008,7 +5019,7 @@ After instantiating components, use figma_take_screenshot to verify the result l
 		);
 
 		// Tool: Rename Node
-		this.server.tool(
+		server.tool(
 			"figma_rename_node",
 			"Rename a node in the layer panel.",
 			{
@@ -5059,7 +5070,7 @@ After instantiating components, use figma_take_screenshot to verify the result l
 		);
 
 		// Tool: Set Text Content
-		this.server.tool(
+		server.tool(
 			"figma_set_text",
 			"Set the text content of a text node. Optionally adjust font size.",
 			{
@@ -5116,7 +5127,7 @@ After instantiating components, use figma_take_screenshot to verify the result l
 		);
 
 		// Tool: Create Child Node
-		this.server.tool(
+		server.tool(
 			"figma_create_child",
 			"Create a new child node inside a parent container. Always place inside an existing Section or Frame — never on a bare page. If no suitable parent exists, create a Section first. Clean up any empty or orphaned nodes if the operation fails.",
 			{
@@ -5198,7 +5209,7 @@ After instantiating components, use figma_take_screenshot to verify the result l
 
 		// Tool: Arrange Component Set (Professional Layout with Native Visualization)
 		// Recreates component set using figma.combineAsVariants() for proper purple dashed frame
-		this.server.tool(
+		server.tool(
 			"figma_arrange_component_set",
 			`Organize a component set with Figma's native purple dashed visualization. Use after creating variants, adding states (hover/disabled/pressed), or when component sets need cleanup.
 
@@ -5724,7 +5735,7 @@ return {
 		);
 
 		// Tool: Lint Design for accessibility and quality issues
-		this.server.tool(
+		server.tool(
 			"figma_lint_design",
 			"Run accessibility (WCAG) and design quality checks on the current page or a specific node tree. " +
 			"Checks color contrast ratios, text sizing, touch targets, hardcoded values, detached components, " +
@@ -5779,7 +5790,7 @@ return {
 
 		// Register Figma API tools (Tools 8-11)
 		registerFigmaAPITools(
-			this.server,
+			server,
 			() => this.getFigmaAPI(),
 			() => this.getCurrentFileUrl(),
 			() => this.consoleMonitor || null,
@@ -5792,7 +5803,7 @@ return {
 
 		// Register Design-Code Parity & Documentation tools
 		registerDesignCodeTools(
-			this.server,
+			server,
 			() => this.getFigmaAPI(),
 			() => this.getCurrentFileUrl(),
 			this.variablesCache,
@@ -5802,14 +5813,14 @@ return {
 
 		// Register Comment tools
 		registerCommentTools(
-			this.server,
+			server,
 			() => this.getFigmaAPI(),
 			() => this.getCurrentFileUrl(),
 		);
 
 		// Register Design System Kit tool
 		registerDesignSystemTools(
-			this.server,
+			server,
 			() => this.getFigmaAPI(),
 			() => this.getCurrentFileUrl(),
 			this.variablesCache,
@@ -5817,31 +5828,31 @@ return {
 
 		// Register Annotation tools (read/write design annotations via Desktop Bridge)
 		registerAnnotationTools(
-			this.server,
+			server,
 			() => this.getDesktopConnector(),
 		);
 
 		// Register Deep Component tools (full Plugin API tree extraction for code generation)
 		registerDeepComponentTools(
-			this.server,
+			server,
 			() => this.getDesktopConnector(),
 		);
 
 		// Register FigJam-specific tools (sticky notes, connectors, tables, etc.)
 		registerFigJamTools(
-			this.server,
+			server,
 			() => this.getDesktopConnector(),
 		);
 
 		// Register Figma Slides tools (slide management, transitions, content)
 		registerSlidesTools(
-			this.server,
+			server,
 			() => this.getDesktopConnector(),
 		);
 
 		// MCP Apps - gated behind ENABLE_MCP_APPS env var
 		if (process.env.ENABLE_MCP_APPS === "true") {
-			registerTokenBrowserApp(this.server, async (fileUrl?: string) => {
+			registerTokenBrowserApp(server, async (fileUrl?: string) => {
 				const url = fileUrl || this.getCurrentFileUrl();
 				if (!url) {
 					throw new Error(
@@ -5965,7 +5976,7 @@ return {
 			});
 
 			registerDesignSystemDashboardApp(
-				this.server,
+				server,
 				async (fileUrl?: string) => {
 					const url = fileUrl || this.getCurrentFileUrl();
 					if (!url) {
@@ -6192,6 +6203,78 @@ return {
 	}
 
 	/**
+	 * Start an optional Streamable HTTP MCP server.
+	 * Only starts if MCP_HTTP_PORT env var is set. This provides an HTTP-based
+	 * transport alongside the default stdio transport, useful for HTTP-native
+	 * clients (Cursor, web UIs, etc.).
+	 */
+	private async startHttpServer(): Promise<void> {
+		const portStr = process.env.MCP_HTTP_PORT;
+		if (!portStr) return;
+
+		const port = parseInt(portStr, 10);
+		if (isNaN(port) || port < 1 || port > 65535) {
+			logger.warn({ portStr }, "Invalid MCP_HTTP_PORT, skipping HTTP server");
+			return;
+		}
+
+		this.httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+			const url = new URL(req.url ?? "/", `http://localhost:${port}`);
+
+			if (url.pathname === "/mcp") {
+				try {
+					// The MCP SDK enforces one-request-per-transport in stateless mode
+					// ("Stateless transport cannot be reused across requests"), so we
+					// create a fresh transport + server per request — same pattern as
+					// the Cloudflare entry point (src/index.ts).
+					const transport = new StreamableHTTPServerTransport({
+						sessionIdGenerator: undefined,
+					});
+					const reqServer = new McpServer(
+						{ name: "Figma Console MCP (Local)", version: "0.1.0" },
+						{ instructions: MCP_SERVER_INSTRUCTIONS },
+					);
+					this.registerTools(reqServer);
+					await reqServer.connect(transport);
+					await transport.handleRequest(req, res);
+				} catch (error) {
+					logger.error({ error }, "Error handling HTTP MCP request");
+					if (!res.headersSent) {
+						res.writeHead(500, { "Content-Type": "application/json" });
+						res.end(JSON.stringify({ error: "Internal server error" }));
+					}
+				}
+				return;
+			}
+
+			if (url.pathname === "/" && req.method === "GET") {
+				res.writeHead(200, { "Content-Type": "application/json" });
+				res.end(JSON.stringify({
+					status: "ok",
+					mode: "local",
+					mcpEndpoint: "/mcp",
+					wsPort: this.wsActualPort,
+					mcpHttpPort: port,
+				}));
+				return;
+			}
+
+			res.writeHead(404);
+			res.end("Not Found");
+		});
+
+		await new Promise<void>((resolve, reject) => {
+			this.httpServer!.once("error", reject);
+			this.httpServer!.listen(port, "127.0.0.1", () => {
+				this.httpServer!.removeListener("error", reject);
+				this.mcpHttpPort = port;
+				logger.info({ port }, `Streamable HTTP MCP listening on http://localhost:${port}/mcp`);
+				resolve();
+			});
+		});
+	}
+
+	/**
 	 * Start the MCP server
 	 */
 	async start(): Promise<void> {
@@ -6362,6 +6445,20 @@ return {
 			// Register all tools
 			this.registerTools();
 
+			// Start optional Streamable HTTP MCP server (if MCP_HTTP_PORT is set)
+			await this.startHttpServer();
+
+			// Update port discovery file with HTTP port if both WS and HTTP are active
+			if (this.mcpHttpPort && this.wsActualPort) {
+				const portFilePath = getPortFilePath(this.wsActualPort);
+				try {
+					const raw = readFileSync(portFilePath, 'utf-8');
+					const data = JSON.parse(raw);
+					data.mcpHttpPort = this.mcpHttpPort;
+					writeFileSync(portFilePath, JSON.stringify(data, null, 2));
+				} catch { /* best-effort — port file update is non-critical */ }
+			}
+
 			// Create stdio transport
 			const transport = new StdioServerTransport();
 
@@ -6401,6 +6498,11 @@ return {
 			// Clean up port advertisement before stopping the server
 			if (this.wsActualPort) {
 				unadvertisePort(this.wsActualPort);
+			}
+
+			if (this.httpServer) {
+				this.httpServer.close();
+				this.httpServer = null;
 			}
 
 			if (this.wsServer) {
