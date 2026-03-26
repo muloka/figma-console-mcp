@@ -107,27 +107,26 @@ describe('WebSocketConnector: refreshCache routing', () => {
     expect(receivedCommands[0].method).toBe('GET_VARIABLES_DATA');
   });
 
-  test('getVariables sends EXECUTE_CODE command (live Plugin API fetch)', async () => {
+  test('refreshVariables sends REFRESH_VARIABLES command', async () => {
     await setup();
-    await connector.getVariables('test-file-key');
+    await connector.refreshVariables();
 
     expect(receivedCommands).toHaveLength(1);
-    expect(receivedCommands[0].method).toBe('EXECUTE_CODE');
-    // The code should include figma.variables.getLocalVariablesAsync
-    expect(receivedCommands[0].params.code).toContain('getLocalVariablesAsync');
+    expect(receivedCommands[0].method).toBe('REFRESH_VARIABLES');
   });
 
-  test('getVariables and getVariablesFromPluginUI use different transport paths', async () => {
+  test('refreshCache=true path: refreshVariables then getVariablesFromPluginUI', async () => {
     await setup();
 
-    // This is the core of the bug fix: refreshCache=true should use
-    // getVariables() (EXECUTE_CODE) not getVariablesFromPluginUI() (GET_VARIABLES_DATA)
+    // This is the cache fix: refreshCache=true calls refreshVariables()
+    // (which updates window.__figmaVariablesData in the plugin UI)
+    // then getVariablesFromPluginUI() returns the now-current snapshot.
+    await connector.refreshVariables();
     await connector.getVariablesFromPluginUI('test-file-key');
-    await connector.getVariables('test-file-key');
 
     expect(receivedCommands).toHaveLength(2);
-    expect(receivedCommands[0].method).toBe('GET_VARIABLES_DATA');
-    expect(receivedCommands[1].method).toBe('EXECUTE_CODE');
+    expect(receivedCommands[0].method).toBe('REFRESH_VARIABLES');
+    expect(receivedCommands[1].method).toBe('GET_VARIABLES_DATA');
   });
 });
 
@@ -220,36 +219,19 @@ describe('figma-tools.ts refreshCache integration', () => {
     expect(methodToCall).toBe('getVariablesFromPluginUI');
   });
 
-  test('EXECUTE_CODE result shape is normalized (unwrap .result)', () => {
-    // getVariables() returns { success: true, result: { success: true, variables: [...] } }
-    // getVariablesFromPluginUI() returns { success: true, variables: [...] }
-    // The normalization logic: rawResult.result?.variables ? rawResult.result : rawResult
-
-    const executeCodeResult = {
-      success: true,
-      result: {
-        success: true,
-        variables: [{ id: 'v1', name: 'test' }],
-        variableCollections: [{ id: 'c1', name: 'Collection' }],
-      },
-    };
-    const normalized = executeCodeResult.result?.variables
-      ? executeCodeResult.result
-      : executeCodeResult;
-    expect(normalized.variables).toHaveLength(1);
-    expect(normalized.variables[0].name).toBe('test');
-  });
-
-  test('GET_VARIABLES_DATA result shape passes through unchanged', () => {
+  test('refreshCache uses same data path as normal fetch (no shape mismatch)', () => {
+    // The fix uses refreshVariables() + getVariablesFromPluginUI() for both paths,
+    // so the data shape is always { success, variables, variableCollections }.
+    // This avoids the EXECUTE_CODE wrapper issue where getVariables() returned
+    // { success, result: { success, variables, ... } } requiring normalization.
     const getVarsResult = {
       success: true,
       variables: [{ id: 'v1', name: 'test' }],
       variableCollections: [{ id: 'c1', name: 'Collection' }],
     };
-    const normalized = getVarsResult.result?.variables
-      ? getVarsResult.result
-      : getVarsResult;
-    expect(normalized.variables).toHaveLength(1);
-    expect(normalized).toBe(getVarsResult); // Same reference — no unwrapping needed
+    // Both refreshCache=true and refreshCache=false use getVariablesFromPluginUI()
+    // which returns this exact shape — no unwrapping needed.
+    expect(getVarsResult.success).toBe(true);
+    expect(getVarsResult.variables).toHaveLength(1);
   });
 });

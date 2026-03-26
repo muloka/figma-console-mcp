@@ -1917,18 +1917,16 @@ export function registerFigmaAPITools(
 						}
 						logger.info({ transport: connector.getTransportType?.() || 'unknown' }, "Desktop connector ready");
 
-						// When refreshCache is true, bypass the plugin UI's internal cache
-						// (window.__figmaVariablesData) by fetching live from the Plugin API
-						// via EXECUTE_CODE → figma.variables.getLocalVariablesAsync()
-						const rawResult = refreshCache
-							? await connector.getVariables(fileKey)
-							: await connector.getVariablesFromPluginUI(fileKey);
-						// getVariables() returns { success, result: { variables, ... } }
-						// (EXECUTE_CODE wraps in .result), while getVariablesFromPluginUI()
-						// returns { success, variables, ... } directly. Normalize the shape.
-						const desktopResult = rawResult.result?.variables
-							? rawResult.result
-							: rawResult;
+						// When refreshCache is true, tell the plugin to re-fetch all
+						// variables from the Plugin API.  refreshVariables() sends
+						// REFRESH_VARIABLES → code.js re-runs getLocalVariablesAsync()
+						// → posts VARIABLES_DATA back to the UI (updating
+						// window.__figmaVariablesData) → returns the fresh data.
+						// Then getVariablesFromPluginUI() returns the now-current snapshot.
+						if (refreshCache) {
+							await connector.refreshVariables();
+						}
+						const desktopResult = await connector.getVariablesFromPluginUI(fileKey);
 
 						if (desktopResult.success && desktopResult.variables) {
 							logger.info(
