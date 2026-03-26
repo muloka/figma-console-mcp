@@ -22,52 +22,15 @@
       user-select: none;
     }
 
-    .status-rows {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      width: 100%;
-    }
-
-    .status-row {
+    .bridge-status {
       display: flex;
       align-items: center;
       gap: 6px;
-      padding: 2px 4px;
-      white-space: nowrap;
-    }
-
-    .status-label {
-      color: var(--figma-color-text-secondary, rgba(255, 255, 255, 0.7));
-      font-weight: 500;
-      font-size: 10px;
-      letter-spacing: 0.2px;
-    }
-
-    .status-value {
-      color: var(--figma-color-text, rgba(255, 255, 255, 0.9));
-      font-weight: 500;
-      font-size: 10px;
-      margin-left: auto;
-    }
-
-    .reconnect-btn {
-      width: 100%;
+      padding: 4px 8px;
       background: var(--figma-color-bg-secondary, #383838);
       border: 1px solid var(--figma-color-border, #4a4a4a);
-      border-radius: 3px;
-      color: var(--figma-color-text, rgba(255, 255, 255, 0.9));
-      font-family: inherit;
-      font-size: 10px;
-      font-weight: 500;
-      padding: 4px 8px;
-      cursor: pointer;
-      margin-top: 2px;
-    }
-
-    .reconnect-btn:hover {
-      background: var(--figma-color-bg-tertiary, #4a4a4a);
-      border-color: var(--figma-color-text-secondary, rgba(255, 255, 255, 0.5));
+      border-radius: 4px;
+      white-space: nowrap;
     }
 
     .status-indicator {
@@ -100,6 +63,20 @@
     @keyframes glow {
       0%, 100% { box-shadow: 0 0 4px rgba(24, 169, 87, 0.4); }
       50% { box-shadow: 0 0 8px rgba(24, 169, 87, 0.8); }
+    }
+
+    .status-text {
+      font-weight: 500;
+      letter-spacing: 0.2px;
+    }
+
+    .status-text .label {
+      color: var(--figma-color-text-secondary, rgba(255, 255, 255, 0.7));
+    }
+
+    .status-text .state {
+      color: var(--figma-color-text, rgba(255, 255, 255, 0.9));
+      margin-left: 4px;
     }
 
     /* Cloud Mode toggle */
@@ -200,38 +177,28 @@
         background: #f5f5f5;
         color: #333;
       }
-      .status-label {
-        color: #666;
-      }
-      .status-value {
-        color: #333;
-      }
-      .reconnect-btn {
+      .bridge-status {
         background: #fff;
         border-color: #e5e5e5;
-        color: #333;
       }
-      .reconnect-btn:hover {
-        background: #f0f0f0;
+      .status-text .label {
+        color: #666;
+      }
+      .status-text .state {
+        color: #333;
       }
     }
   </style>
 </head>
 <body>
   <div style="display: flex; flex-direction: column; align-items: center; width: 100%;">
-    <div class="status-rows" id="status-rows">
-      <div class="status-row" id="vars-row">
-        <div class="status-indicator loading" id="vars-dot"></div>
-        <span class="status-label">Figma Vars</span>
-        <span class="status-value" id="vars-state">loading</span>
-      </div>
-      <div class="status-row" id="bridge-row">
-        <div class="status-indicator loading" id="bridge-dot"></div>
-        <span class="status-label">MCP Bridge</span>
-        <span class="status-value" id="bridge-state">scanning</span>
+    <div class="bridge-status" id="status-container">
+      <div class="status-indicator loading" id="status-dot"></div>
+      <div class="status-text">
+        <span class="label">MCP</span>
+        <span class="state" id="status-state">connecting</span>
       </div>
     </div>
-    <button class="reconnect-btn" id="reconnect-btn" style="display: none;" onclick="window.__wsManualRescan && window.__wsManualRescan()">↻ Reconnect</button>
 
     <div class="cloud-toggle" id="cloud-toggle" onclick="toggleCloudSection()">
       <span class="chevron">▶</span> Cloud Mode
@@ -260,50 +227,13 @@
 
     let requestIdCounter = 0;
 
-    // Heights for dynamic window resizing
-    var HEIGHT_DEFAULT = 65;
-    var HEIGHT_RECONNECT = 90;
-    var HEIGHT_CLOUD = 145;
-    var HEIGHT_CLOUD_RECONNECT = 170;
-
-    function resizePluginWindow() {
-      var cloudVisible = document.getElementById('cloud-section').classList.contains('visible');
-      var reconnectVisible = document.getElementById('reconnect-btn').style.display !== 'none';
-      var height = HEIGHT_DEFAULT;
-      if (reconnectVisible && cloudVisible) height = HEIGHT_CLOUD_RECONNECT;
-      else if (cloudVisible) height = HEIGHT_CLOUD;
-      else if (reconnectVisible) height = HEIGHT_RECONNECT;
-      parent.postMessage({ pluginMessage: { type: 'RESIZE_UI', width: 180, height: height } }, '*');
-    }
-
-    // Figma Vars status — reflects plugin worker data state
-    function updateVarsStatus(state, isActive, isError, tooltip) {
-      var dot = document.getElementById('vars-dot');
-      var stateText = document.getElementById('vars-state');
-      var row = document.getElementById('vars-row');
+    // UI update helper
+    function updateStatus(state, isActive, isError) {
+      const dot = document.getElementById('status-dot');
+      const stateText = document.getElementById('status-state');
 
       dot.className = 'status-indicator ' + (isError ? 'error' : (isActive ? 'active' : 'loading'));
       stateText.textContent = state;
-      row.title = tooltip || '';
-    }
-
-    // MCP Bridge status — reflects WebSocket connection state
-    function updateBridgeStatus(state, isActive, isError, tooltip) {
-      var dot = document.getElementById('bridge-dot');
-      var stateText = document.getElementById('bridge-state');
-      var row = document.getElementById('bridge-row');
-      var btn = document.getElementById('reconnect-btn');
-
-      dot.className = 'status-indicator ' + (isError ? 'error' : (isActive ? 'active' : 'loading'));
-      stateText.textContent = state;
-      row.title = tooltip || '';
-
-      if (isError) {
-        btn.style.display = '';
-      } else {
-        btn.style.display = 'none';
-      }
-      resizePluginWindow();
     }
 
     // ============================================================================
@@ -732,6 +662,77 @@
         'GET_FILE_INFO': function() {
           return window.sendPluginCommand('GET_FILE_INFO', {});
         },
+        // FigJam tools — forward directly to plugin code.js
+        'CREATE_STICKY': function(params) {
+          return window.sendPluginCommand('CREATE_STICKY', params);
+        },
+        'CREATE_STICKIES': function(params) {
+          return window.sendPluginCommand('CREATE_STICKIES', params, 30000);
+        },
+        'CREATE_CONNECTOR': function(params) {
+          return window.sendPluginCommand('CREATE_CONNECTOR', params);
+        },
+        'CREATE_SHAPE_WITH_TEXT': function(params) {
+          return window.sendPluginCommand('CREATE_SHAPE_WITH_TEXT', params);
+        },
+        'CREATE_TABLE': function(params) {
+          return window.sendPluginCommand('CREATE_TABLE', params, 30000);
+        },
+        'CREATE_CODE_BLOCK': function(params) {
+          return window.sendPluginCommand('CREATE_CODE_BLOCK', params);
+        },
+        'GET_BOARD_CONTENTS': function(params) {
+          return window.sendPluginCommand('GET_BOARD_CONTENTS', params, 30000);
+        },
+        'GET_CONNECTIONS': function(params) {
+          return window.sendPluginCommand('GET_CONNECTIONS', params || {}, 15000);
+        },
+        // Slides tools — forward directly to plugin code.js
+        'LIST_SLIDES': function(params) {
+          return window.sendPluginCommand('LIST_SLIDES', params || {}, 10000);
+        },
+        'GET_SLIDE_CONTENT': function(params) {
+          return window.sendPluginCommand('GET_SLIDE_CONTENT', params, 10000);
+        },
+        'CREATE_SLIDE': function(params) {
+          return window.sendPluginCommand('CREATE_SLIDE', params || {}, 10000);
+        },
+        'DELETE_SLIDE': function(params) {
+          return window.sendPluginCommand('DELETE_SLIDE', params, 5000);
+        },
+        'DUPLICATE_SLIDE': function(params) {
+          return window.sendPluginCommand('DUPLICATE_SLIDE', params, 5000);
+        },
+        'GET_SLIDE_GRID': function(params) {
+          return window.sendPluginCommand('GET_SLIDE_GRID', params || {}, 10000);
+        },
+        'REORDER_SLIDES': function(params) {
+          return window.sendPluginCommand('REORDER_SLIDES', params, 15000);
+        },
+        'SET_SLIDE_TRANSITION': function(params) {
+          return window.sendPluginCommand('SET_SLIDE_TRANSITION', params, 5000);
+        },
+        'GET_SLIDE_TRANSITION': function(params) {
+          return window.sendPluginCommand('GET_SLIDE_TRANSITION', params, 5000);
+        },
+        'SET_SLIDES_VIEW_MODE': function(params) {
+          return window.sendPluginCommand('SET_SLIDES_VIEW_MODE', params, 5000);
+        },
+        'GET_FOCUSED_SLIDE': function(params) {
+          return window.sendPluginCommand('GET_FOCUSED_SLIDE', params || {}, 5000);
+        },
+        'FOCUS_SLIDE': function(params) {
+          return window.sendPluginCommand('FOCUS_SLIDE', params, 5000);
+        },
+        'SKIP_SLIDE': function(params) {
+          return window.sendPluginCommand('SKIP_SLIDE', params, 5000);
+        },
+        'ADD_TEXT_TO_SLIDE': function(params) {
+          return window.sendPluginCommand('ADD_TEXT_TO_SLIDE', params, 10000);
+        },
+        'ADD_SHAPE_TO_SLIDE': function(params) {
+          return window.sendPluginCommand('ADD_SHAPE_TO_SLIDE', params, 5000);
+        },
         'CLEAR_CONSOLE': function() {
           // Console buffer is maintained server-side; this is a no-op ack
           return Promise.resolve({ cleared: true });
@@ -739,13 +740,15 @@
         'RELOAD_UI': function() {
           return window.sendPluginCommand('RELOAD_UI', {});
         },
-        // Annotation tools — forward to plugin code.js
+        // Component set analysis — variant state machine + cross-variant diff
         'ANALYZE_COMPONENT_SET': function(params) {
           return window.analyzeComponentSet(params.nodeId);
         },
+        // Deep component extraction — full visual tree with tokens and interactions
         'DEEP_GET_COMPONENT': function(params) {
           return window.deepGetComponent(params.nodeId, params.depth);
         },
+        // Annotation tools — forward to plugin code.js
         'GET_ANNOTATIONS': function(params) {
           return window.sendPluginCommand('GET_ANNOTATIONS', params, 10000);
         },
@@ -828,7 +831,6 @@
       function wsScanAndConnect() {
         if (isScanning) return;
         isScanning = true;
-        updateBridgeStatus('scanning\u2026', false, false, 'Scanning ports ' + WS_PORT_RANGE_START + '-' + WS_PORT_RANGE_END);
 
         var portsToTry = [];
         for (var p = WS_PORT_RANGE_START; p <= WS_PORT_RANGE_END; p++) {
@@ -856,12 +858,8 @@
               activeConnections.push({ port: port, ws: testWs });
               updateCompatState();
               console.log('[MCP Bridge] WebSocket connected to port ' + port + ' (' + activeConnections.length + ' server(s) total)');
-              updateBridgeStatus('connected (' + activeConnections.length + ')', true, false,
-                'Port' + (activeConnections.length > 1 ? 's' : '') + ': ' +
-                activeConnections.map(function(c) { return c.port; }).join(', '));
               attachWsHandlers(testWs, port);
               initializeConnection(testWs, port);
-              sendDiagnostic('connected', { port: port });
               pending--;
               if (pending <= 0) {
                 isScanning = false;
@@ -888,8 +886,6 @@
                     setTimeout(wsScanAndConnect, delay);
                   } else {
                     console.log('[MCP Bridge] No MCP servers found after ' + MAX_INITIAL_SCANS + ' scans. Restart plugin to retry.');
-                    updateBridgeStatus('disconnected', false, true, 'No MCP servers found. Click to rescan.');
-                    sendDiagnostic('retries_exhausted', { type: 'initial_scan', attempts: initialScanAttempts });
                   }
                 }
               }
@@ -917,13 +913,8 @@
             activeConnections.push({ port: port, ws: testWs });
             updateCompatState();
             console.log('[MCP Bridge] Reconnected to port ' + port + ' (' + activeConnections.length + ' server(s) total)');
-            wsReconnectAttempts = 0;
-            updateBridgeStatus('connected (' + activeConnections.length + ')', true, false,
-              'Port' + (activeConnections.length > 1 ? 's' : '') + ': ' +
-              activeConnections.map(function(c) { return c.port; }).join(', '));
             attachWsHandlers(testWs, port);
             initializeConnection(testWs, port);
-            sendDiagnostic('reconnected', { port: port });
           };
 
           testWs.onerror = function() {
@@ -980,15 +971,7 @@
 
         activeWs.onclose = function(event) {
           removeConnection(port);
-          sendDiagnostic('disconnected', { port: port, code: event.code, reason: event.reason });
           console.log('[MCP Bridge] WebSocket disconnected from port ' + port + ' (' + activeConnections.length + ' server(s) remaining)');
-          if (activeConnections.length === 0) {
-            updateBridgeStatus('reconnecting\u2026', false, false, 'Lost connection to port ' + port + ', retrying\u2026');
-          } else {
-            updateBridgeStatus('connected (' + activeConnections.length + ')', true, false,
-              'Port' + (activeConnections.length > 1 ? 's' : '') + ': ' +
-              activeConnections.map(function(c) { return c.port; }).join(', '));
-          }
 
           // If replaced by same file reconnecting (e.g., plugin reloaded), stop
           var wasReplaced = (event.code === 1000 && (
@@ -1005,11 +988,6 @@
           if (wsReconnectAttempts <= 5) {
             var delay = Math.min(1000 * wsReconnectAttempts, 5000);
             setTimeout(function() { wsReconnectPort(port); }, delay);
-          } else {
-            if (activeConnections.length === 0) {
-              updateBridgeStatus('disconnected', false, true, 'Lost connection. Click to rescan.');
-            }
-            sendDiagnostic('retries_exhausted', { type: 'reconnect', port: port, attempts: wsReconnectAttempts });
           }
         };
 
@@ -1028,23 +1006,6 @@
         activeConnections.forEach(function(conn) {
           if (conn.ws.readyState === 1) {
             try { conn.ws.send(json); } catch(e) { /* ignore send errors */ }
-          }
-        });
-      }
-
-      /**
-       * Send a diagnostic event to all connected servers.
-       * Lightweight — servers log these for debugging connection issues.
-       */
-      function sendDiagnostic(event, detail) {
-        broadcastToAll({
-          type: 'BRIDGE_DIAGNOSTIC',
-          data: {
-            event: event,
-            detail: detail || {},
-            timestamp: new Date().toISOString(),
-            activeCount: activeConnections.length,
-            ports: activeConnections.map(function(c) { return c.port; })
           }
         });
       }
@@ -1102,12 +1063,6 @@
 
       window.__wsGetActiveConnections = function() { return activeConnections; };
 
-      window.__wsManualRescan = function() {
-        initialScanAttempts = 0;
-        wsReconnectAttempts = 0;
-        wsScanAndConnect();
-      };
-
       // Single scan on load — no periodic rescanning to avoid console spam.
       // If no server found, retries up to MAX_INITIAL_SCANS times then stops.
       // On disconnect, retries the specific port up to 5 times then stops.
@@ -1127,7 +1082,9 @@
       section.classList.toggle('visible');
       toggle.classList.toggle('expanded');
 
-      resizePluginWindow();
+      // Resize plugin window to fit content
+      var height = isExpanding ? 130 : 50;
+      parent.postMessage({ pluginMessage: { type: 'RESIZE_UI', width: 140, height: height } }, '*');
     }
 
     function resetCloudUI() {
@@ -1248,8 +1205,7 @@
         case 'VARIABLES_DATA':
           window.__figmaVariablesData = msg.data;
           window.__figmaVariablesReady = true;
-          updateVarsStatus('ready', true, false,
-            (msg.data.variables ? msg.data.variables.length + ' variables' : ''));
+          updateStatus('ready', true, false);
           console.log('[MCP Bridge] Active - ' + (msg.data.variables?.length || 0) + ' vars');
           // Forward to WebSocket client if connected
           if (window.__wsForwardVariables) window.__wsForwardVariables(msg.data);
@@ -1268,7 +1224,7 @@
 
         case 'ERROR':
           window.__figmaVariablesReady = false;
-          updateVarsStatus('error', false, true, msg.error || 'Plugin error');
+          updateStatus('error', false, true);
           console.error('[MCP Bridge] Error:', msg.error);
           break;
 
@@ -1374,6 +1330,79 @@
           break;
         case 'LINT_DESIGN_RESULT':
           handleResult('LINT_DESIGN', 'data');
+          break;
+
+        // FigJam tools
+        case 'CREATE_STICKY_RESULT':
+          handleResult('CREATE_STICKY', 'data');
+          break;
+        case 'CREATE_STICKIES_RESULT':
+          handleResult('CREATE_STICKIES', 'data');
+          break;
+        case 'CREATE_CONNECTOR_RESULT':
+          handleResult('CREATE_CONNECTOR', 'data');
+          break;
+        case 'CREATE_SHAPE_WITH_TEXT_RESULT':
+          handleResult('CREATE_SHAPE_WITH_TEXT', 'data');
+          break;
+        case 'CREATE_TABLE_RESULT':
+          handleResult('CREATE_TABLE', 'data');
+          break;
+        case 'CREATE_CODE_BLOCK_RESULT':
+          handleResult('CREATE_CODE_BLOCK', 'data');
+          break;
+        case 'GET_BOARD_CONTENTS_RESULT':
+          handleResult('GET_BOARD_CONTENTS', 'data');
+          break;
+        case 'GET_CONNECTIONS_RESULT':
+          handleResult('GET_CONNECTIONS', 'data');
+          break;
+
+        // Slides tools
+        case 'LIST_SLIDES_RESULT':
+          handleResult('LIST_SLIDES', 'data');
+          break;
+        case 'GET_SLIDE_CONTENT_RESULT':
+          handleResult('GET_SLIDE_CONTENT', 'data');
+          break;
+        case 'CREATE_SLIDE_RESULT':
+          handleResult('CREATE_SLIDE', 'data');
+          break;
+        case 'DELETE_SLIDE_RESULT':
+          handleResult('DELETE_SLIDE', 'data');
+          break;
+        case 'DUPLICATE_SLIDE_RESULT':
+          handleResult('DUPLICATE_SLIDE', 'data');
+          break;
+        case 'GET_SLIDE_GRID_RESULT':
+          handleResult('GET_SLIDE_GRID', 'data');
+          break;
+        case 'REORDER_SLIDES_RESULT':
+          handleResult('REORDER_SLIDES', 'data');
+          break;
+        case 'SET_SLIDE_TRANSITION_RESULT':
+          handleResult('SET_SLIDE_TRANSITION', 'data');
+          break;
+        case 'GET_SLIDE_TRANSITION_RESULT':
+          handleResult('GET_SLIDE_TRANSITION', 'data');
+          break;
+        case 'SET_SLIDES_VIEW_MODE_RESULT':
+          handleResult('SET_SLIDES_VIEW_MODE', 'data');
+          break;
+        case 'GET_FOCUSED_SLIDE_RESULT':
+          handleResult('GET_FOCUSED_SLIDE', 'data');
+          break;
+        case 'FOCUS_SLIDE_RESULT':
+          handleResult('FOCUS_SLIDE', 'data');
+          break;
+        case 'SKIP_SLIDE_RESULT':
+          handleResult('SKIP_SLIDE', 'data');
+          break;
+        case 'ADD_TEXT_TO_SLIDE_RESULT':
+          handleResult('ADD_TEXT_TO_SLIDE', 'data');
+          break;
+        case 'ADD_SHAPE_TO_SLIDE_RESULT':
+          handleResult('ADD_SHAPE_TO_SLIDE', 'data');
           break;
 
         // File info
