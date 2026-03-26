@@ -22,15 +22,52 @@
       user-select: none;
     }
 
-    .bridge-status {
+    .status-rows {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      width: 100%;
+    }
+
+    .status-row {
       display: flex;
       align-items: center;
       gap: 6px;
-      padding: 4px 8px;
+      padding: 2px 4px;
+      white-space: nowrap;
+    }
+
+    .status-label {
+      color: var(--figma-color-text-secondary, rgba(255, 255, 255, 0.7));
+      font-weight: 500;
+      font-size: 10px;
+      letter-spacing: 0.2px;
+    }
+
+    .status-value {
+      color: var(--figma-color-text, rgba(255, 255, 255, 0.9));
+      font-weight: 500;
+      font-size: 10px;
+      margin-left: auto;
+    }
+
+    .reconnect-btn {
+      width: 100%;
       background: var(--figma-color-bg-secondary, #383838);
       border: 1px solid var(--figma-color-border, #4a4a4a);
-      border-radius: 4px;
-      white-space: nowrap;
+      border-radius: 3px;
+      color: var(--figma-color-text, rgba(255, 255, 255, 0.9));
+      font-family: inherit;
+      font-size: 10px;
+      font-weight: 500;
+      padding: 4px 8px;
+      cursor: pointer;
+      margin-top: 2px;
+    }
+
+    .reconnect-btn:hover {
+      background: var(--figma-color-bg-tertiary, #4a4a4a);
+      border-color: var(--figma-color-text-secondary, rgba(255, 255, 255, 0.5));
     }
 
     .status-indicator {
@@ -63,20 +100,6 @@
     @keyframes glow {
       0%, 100% { box-shadow: 0 0 4px rgba(24, 169, 87, 0.4); }
       50% { box-shadow: 0 0 8px rgba(24, 169, 87, 0.8); }
-    }
-
-    .status-text {
-      font-weight: 500;
-      letter-spacing: 0.2px;
-    }
-
-    .status-text .label {
-      color: var(--figma-color-text-secondary, rgba(255, 255, 255, 0.7));
-    }
-
-    .status-text .state {
-      color: var(--figma-color-text, rgba(255, 255, 255, 0.9));
-      margin-left: 4px;
     }
 
     /* Cloud Mode toggle */
@@ -177,28 +200,38 @@
         background: #f5f5f5;
         color: #333;
       }
-      .bridge-status {
-        background: #fff;
-        border-color: #e5e5e5;
-      }
-      .status-text .label {
+      .status-label {
         color: #666;
       }
-      .status-text .state {
+      .status-value {
         color: #333;
+      }
+      .reconnect-btn {
+        background: #fff;
+        border-color: #e5e5e5;
+        color: #333;
+      }
+      .reconnect-btn:hover {
+        background: #f0f0f0;
       }
     }
   </style>
 </head>
 <body>
   <div style="display: flex; flex-direction: column; align-items: center; width: 100%;">
-    <div class="bridge-status" id="status-container">
-      <div class="status-indicator loading" id="status-dot"></div>
-      <div class="status-text">
-        <span class="label">MCP</span>
-        <span class="state" id="status-state">connecting</span>
+    <div class="status-rows" id="status-rows">
+      <div class="status-row" id="vars-row">
+        <div class="status-indicator loading" id="vars-dot"></div>
+        <span class="status-label">Figma Vars</span>
+        <span class="status-value" id="vars-state">loading</span>
+      </div>
+      <div class="status-row" id="bridge-row">
+        <div class="status-indicator loading" id="bridge-dot"></div>
+        <span class="status-label">MCP Bridge</span>
+        <span class="status-value" id="bridge-state">scanning</span>
       </div>
     </div>
+    <button class="reconnect-btn" id="reconnect-btn" style="display: none;" onclick="window.__wsManualRescan && window.__wsManualRescan()">↻ Reconnect</button>
 
     <div class="cloud-toggle" id="cloud-toggle" onclick="toggleCloudSection()">
       <span class="chevron">▶</span> Cloud Mode
@@ -227,13 +260,50 @@
 
     let requestIdCounter = 0;
 
-    // UI update helper
-    function updateStatus(state, isActive, isError) {
-      const dot = document.getElementById('status-dot');
-      const stateText = document.getElementById('status-state');
+    // Heights for dynamic window resizing
+    var HEIGHT_DEFAULT = 65;
+    var HEIGHT_RECONNECT = 90;
+    var HEIGHT_CLOUD = 145;
+    var HEIGHT_CLOUD_RECONNECT = 170;
+
+    function resizePluginWindow() {
+      var cloudVisible = document.getElementById('cloud-section').classList.contains('visible');
+      var reconnectVisible = document.getElementById('reconnect-btn').style.display !== 'none';
+      var height = HEIGHT_DEFAULT;
+      if (reconnectVisible && cloudVisible) height = HEIGHT_CLOUD_RECONNECT;
+      else if (cloudVisible) height = HEIGHT_CLOUD;
+      else if (reconnectVisible) height = HEIGHT_RECONNECT;
+      parent.postMessage({ pluginMessage: { type: 'RESIZE_UI', width: 180, height: height } }, '*');
+    }
+
+    // Figma Vars status — reflects plugin worker data state
+    function updateVarsStatus(state, isActive, isError, tooltip) {
+      var dot = document.getElementById('vars-dot');
+      var stateText = document.getElementById('vars-state');
+      var row = document.getElementById('vars-row');
 
       dot.className = 'status-indicator ' + (isError ? 'error' : (isActive ? 'active' : 'loading'));
       stateText.textContent = state;
+      row.title = tooltip || '';
+    }
+
+    // MCP Bridge status — reflects WebSocket connection state
+    function updateBridgeStatus(state, isActive, isError, tooltip) {
+      var dot = document.getElementById('bridge-dot');
+      var stateText = document.getElementById('bridge-state');
+      var row = document.getElementById('bridge-row');
+      var btn = document.getElementById('reconnect-btn');
+
+      dot.className = 'status-indicator ' + (isError ? 'error' : (isActive ? 'active' : 'loading'));
+      stateText.textContent = state;
+      row.title = tooltip || '';
+
+      if (isError) {
+        btn.style.display = '';
+      } else {
+        btn.style.display = 'none';
+      }
+      resizePluginWindow();
     }
 
     // ============================================================================
@@ -758,6 +828,7 @@
       function wsScanAndConnect() {
         if (isScanning) return;
         isScanning = true;
+        updateBridgeStatus('scanning\u2026', false, false, 'Scanning ports ' + WS_PORT_RANGE_START + '-' + WS_PORT_RANGE_END);
 
         var portsToTry = [];
         for (var p = WS_PORT_RANGE_START; p <= WS_PORT_RANGE_END; p++) {
@@ -785,8 +856,12 @@
               activeConnections.push({ port: port, ws: testWs });
               updateCompatState();
               console.log('[MCP Bridge] WebSocket connected to port ' + port + ' (' + activeConnections.length + ' server(s) total)');
+              updateBridgeStatus('connected (' + activeConnections.length + ')', true, false,
+                'Port' + (activeConnections.length > 1 ? 's' : '') + ': ' +
+                activeConnections.map(function(c) { return c.port; }).join(', '));
               attachWsHandlers(testWs, port);
               initializeConnection(testWs, port);
+              sendDiagnostic('connected', { port: port });
               pending--;
               if (pending <= 0) {
                 isScanning = false;
@@ -813,6 +888,8 @@
                     setTimeout(wsScanAndConnect, delay);
                   } else {
                     console.log('[MCP Bridge] No MCP servers found after ' + MAX_INITIAL_SCANS + ' scans. Restart plugin to retry.');
+                    updateBridgeStatus('disconnected', false, true, 'No MCP servers found. Click to rescan.');
+                    sendDiagnostic('retries_exhausted', { type: 'initial_scan', attempts: initialScanAttempts });
                   }
                 }
               }
@@ -840,8 +917,13 @@
             activeConnections.push({ port: port, ws: testWs });
             updateCompatState();
             console.log('[MCP Bridge] Reconnected to port ' + port + ' (' + activeConnections.length + ' server(s) total)');
+            wsReconnectAttempts = 0;
+            updateBridgeStatus('connected (' + activeConnections.length + ')', true, false,
+              'Port' + (activeConnections.length > 1 ? 's' : '') + ': ' +
+              activeConnections.map(function(c) { return c.port; }).join(', '));
             attachWsHandlers(testWs, port);
             initializeConnection(testWs, port);
+            sendDiagnostic('reconnected', { port: port });
           };
 
           testWs.onerror = function() {
@@ -898,7 +980,15 @@
 
         activeWs.onclose = function(event) {
           removeConnection(port);
+          sendDiagnostic('disconnected', { port: port, code: event.code, reason: event.reason });
           console.log('[MCP Bridge] WebSocket disconnected from port ' + port + ' (' + activeConnections.length + ' server(s) remaining)');
+          if (activeConnections.length === 0) {
+            updateBridgeStatus('reconnecting\u2026', false, false, 'Lost connection to port ' + port + ', retrying\u2026');
+          } else {
+            updateBridgeStatus('connected (' + activeConnections.length + ')', true, false,
+              'Port' + (activeConnections.length > 1 ? 's' : '') + ': ' +
+              activeConnections.map(function(c) { return c.port; }).join(', '));
+          }
 
           // If replaced by same file reconnecting (e.g., plugin reloaded), stop
           var wasReplaced = (event.code === 1000 && (
@@ -915,6 +1005,11 @@
           if (wsReconnectAttempts <= 5) {
             var delay = Math.min(1000 * wsReconnectAttempts, 5000);
             setTimeout(function() { wsReconnectPort(port); }, delay);
+          } else {
+            if (activeConnections.length === 0) {
+              updateBridgeStatus('disconnected', false, true, 'Lost connection. Click to rescan.');
+            }
+            sendDiagnostic('retries_exhausted', { type: 'reconnect', port: port, attempts: wsReconnectAttempts });
           }
         };
 
@@ -933,6 +1028,23 @@
         activeConnections.forEach(function(conn) {
           if (conn.ws.readyState === 1) {
             try { conn.ws.send(json); } catch(e) { /* ignore send errors */ }
+          }
+        });
+      }
+
+      /**
+       * Send a diagnostic event to all connected servers.
+       * Lightweight — servers log these for debugging connection issues.
+       */
+      function sendDiagnostic(event, detail) {
+        broadcastToAll({
+          type: 'BRIDGE_DIAGNOSTIC',
+          data: {
+            event: event,
+            detail: detail || {},
+            timestamp: new Date().toISOString(),
+            activeCount: activeConnections.length,
+            ports: activeConnections.map(function(c) { return c.port; })
           }
         });
       }
@@ -990,6 +1102,12 @@
 
       window.__wsGetActiveConnections = function() { return activeConnections; };
 
+      window.__wsManualRescan = function() {
+        initialScanAttempts = 0;
+        wsReconnectAttempts = 0;
+        wsScanAndConnect();
+      };
+
       // Single scan on load — no periodic rescanning to avoid console spam.
       // If no server found, retries up to MAX_INITIAL_SCANS times then stops.
       // On disconnect, retries the specific port up to 5 times then stops.
@@ -1009,9 +1127,7 @@
       section.classList.toggle('visible');
       toggle.classList.toggle('expanded');
 
-      // Resize plugin window to fit content
-      var height = isExpanding ? 130 : 50;
-      parent.postMessage({ pluginMessage: { type: 'RESIZE_UI', width: 140, height: height } }, '*');
+      resizePluginWindow();
     }
 
     function resetCloudUI() {
@@ -1132,7 +1248,8 @@
         case 'VARIABLES_DATA':
           window.__figmaVariablesData = msg.data;
           window.__figmaVariablesReady = true;
-          updateStatus('ready', true, false);
+          updateVarsStatus('ready', true, false,
+            (msg.data.variables ? msg.data.variables.length + ' variables' : ''));
           console.log('[MCP Bridge] Active - ' + (msg.data.variables?.length || 0) + ' vars');
           // Forward to WebSocket client if connected
           if (window.__wsForwardVariables) window.__wsForwardVariables(msg.data);
@@ -1151,7 +1268,7 @@
 
         case 'ERROR':
           window.__figmaVariablesReady = false;
-          updateStatus('error', false, true);
+          updateVarsStatus('error', false, true, msg.error || 'Plugin error');
           console.error('[MCP Bridge] Error:', msg.error);
           break;
 
