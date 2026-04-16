@@ -214,3 +214,6 @@ Temporary Items
 
 # Internal notes and drafts
 .notes/
+
+# Bug reports (local drafts)
+.bugs/

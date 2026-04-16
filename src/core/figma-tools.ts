@@ -1923,11 +1923,19 @@ export function registerFigmaAPITools(
 							? await connector.getVariables(fileKey)
 							: await connector.getVariablesFromPluginUI(fileKey);
 
-						if (desktopResult.success && desktopResult.variables) {
+						// getVariables() returns via EXECUTE_CODE, which wraps the script
+						// result in a `result` key: { success: true, result: { variables: [...] } }.
+						// getVariablesFromPluginUI() returns the data directly: { success: true, variables: [...] }.
+						// Unwrap so variable extraction works for both paths.
+						const variableData = desktopResult?.result?.variables
+							? desktopResult.result
+							: desktopResult;
+
+						if (variableData.success && variableData.variables) {
 							logger.info(
 								{
-									variableCount: desktopResult.variables.length,
-									collectionCount: desktopResult.variableCollections?.length
+									variableCount: variableData.variables.length,
+									collectionCount: variableData.variableCollections?.length
 								},
 								"Successfully retrieved variables via Desktop connection!"
 							);
@@ -1936,9 +1944,9 @@ export function registerFigmaAPITools(
 							const dataForCache = {
 								fileKey,
 								source: "desktop_connection",
-								timestamp: desktopResult.timestamp || Date.now(),
-								variables: desktopResult.variables,
-								variableCollections: desktopResult.variableCollections,
+								timestamp: variableData.timestamp || Date.now(),
+								variables: variableData.variables,
+								variableCollections: variableData.variableCollections,
 							};
 
 							// Store in cache with LRU eviction
