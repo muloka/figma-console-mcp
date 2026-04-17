@@ -203,6 +203,7 @@ Temporary Items
 
 # Claude Code local settings (user-specific)
 .claude/settings.local.json
+.claude/scripts/
 
 # Playwright MCP temp files
 .playwright-mcp/
@@ -217,3 +218,6 @@ Temporary Items
 # Claude Code agent worktrees and Playwright CLI debug artifacts
 .claude/worktrees/
 .playwright-cli/
+
+# Bug reports (local drafts)
+.bugs/
