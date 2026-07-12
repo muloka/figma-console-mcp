@@ -212,8 +212,9 @@ Temporary Items
 .vscode/mcp.json
 .env.mcp
 
-# Internal notes and drafts
-.notes/
+# Internal notes and drafts (UPSTREAM-SYNC.md is tracked: fork sync strategy)
+.notes/*
+!.notes/UPSTREAM-SYNC.md
 
 # Claude Code agent worktrees and Playwright CLI debug artifacts
 .claude/worktrees/
