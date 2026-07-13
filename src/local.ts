@@ -108,6 +108,21 @@ function setupStablePluginDir(sourcePluginDir: string): string | null {
 	}
 }
 
+/**
+ * Server version reported in the MCP handshake's serverInfo.version — read from
+ * package.json (not hardcoded) so clients like `toko figma status` can detect
+ * which sidecar build they're talking to via peer_info(). Falls back to "0.0.0"
+ * if package.json can't be resolved.
+ */
+let SERVER_VERSION = "0.0.0";
+try {
+	SERVER_VERSION = JSON.parse(
+		readFileSync(join(PACKAGE_ROOT, "package.json"), "utf-8"),
+	).version;
+} catch (error) {
+	logger.warn({ error }, "Could not read version from package.json");
+}
+
 /** Instructions shared by both the stdio and HTTP MCP server instances. */
 const MCP_SERVER_INSTRUCTIONS = `## Figma Console MCP - Visual Design Workflow
 
@@ -221,7 +236,7 @@ class LocalFigmaConsoleMCP {
 		this.server = new McpServer(
 			{
 				name: "Figma Console MCP (Local)",
-				version: "0.1.0",
+				version: SERVER_VERSION,
 			},
 			{
 				instructions: MCP_SERVER_INSTRUCTIONS,
@@ -3558,7 +3573,7 @@ Without libraryFileKey/libraryFileUrl, searches the currently open file (local c
 						sessionIdGenerator: undefined,
 					});
 					const reqServer = new McpServer(
-						{ name: "Figma Console MCP (Local)", version: "0.1.0" },
+						{ name: "Figma Console MCP (Local)", version: SERVER_VERSION },
 						{ instructions: MCP_SERVER_INSTRUCTIONS },
 					);
 					this.registerTools(reqServer);

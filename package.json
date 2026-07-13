@@ -1,6 +1,6 @@
 {
 	"name": "@muloka/figma-console-mcp",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"forkedFrom": {
 		"name": "figma-console-mcp",
 		"version": "1.35.0",
