@@ -1,7 +1,17 @@
 # Figma Console MCP Server
 
+> ### 🍴 This is a fork
+>
+> **`@muloka/figma-console-mcp`** is a fork of [southleft/figma-console-mcp](https://github.com/southleft/figma-console-mcp) with a few agent-focused adjustments not yet in upstream:
+>
+> - **Streamable HTTP transport** in local mode — connect multiple local clients to one running instance ([upstream #48](https://github.com/southleft/figma-console-mcp/issues/48))
+> - **`VariableID:` alias support** in `figma_batch_create_variables` and `figma_setup_design_tokens` ([upstream #52](https://github.com/southleft/figma-console-mcp/issues/52))
+> - **Bridge robustness** — handler timeout + dropped-response logging in the Desktop Bridge dispatch ([upstream #94](https://github.com/southleft/figma-console-mcp/issues/94))
+>
+> **Install this fork:** `npx @muloka/figma-console-mcp` — the `npx figma-console-mcp` commands below install *upstream* instead. Versioned independently starting at `0.1.0`; currently tracking upstream **v1.35.0**. Everything else in this README is upstream's documentation and applies as written.
+
 [![MCP](https://img.shields.io/badge/MCP-Compatible-blue)](https://modelcontextprotocol.io/)
-[![npm](https://img.shields.io/npm/v/figma-console-mcp)](https://www.npmjs.com/package/figma-console-mcp)
+[![npm](https://img.shields.io/npm/v/@muloka/figma-console-mcp)](https://www.npmjs.com/package/@muloka/figma-console-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Documentation](https://img.shields.io/badge/docs-docs.figma--console--mcp.southleft.com-0D9488)](https://docs.figma-console-mcp.southleft.com)
 [![Sponsor](https://img.shields.io/badge/Sponsor-southleft-ea4aaa?logo=github-sponsors&logoColor=white)](https://github.com/sponsors/southleft)
