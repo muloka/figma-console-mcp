@@ -19,9 +19,14 @@
  *
  * Invariants enforced here:
  * 1. PLUGIN_VERSION in code.js is present and parseable.
- * 2. PLUGIN_VERSION never EXCEEDS package.json (it may lag on server-only
- *    releases, but a plugin newer than the package means a manual edit
- *    bypassed release.sh).
+ * 2. PLUGIN_VERSION never EXCEEDS the upstream base the plugin files were
+ *    synced from (package.json `forkedFrom.version`). The plugin files are
+ *    vendored from upstream, so the plugin lineage is upstream's, NOT this
+ *    fork's independent package version (0.x). A PLUGIN_VERSION ahead of the
+ *    synced upstream base means a manual edit bypassed a real sync. (Before
+ *    this became a scoped fork, the anchor was package.json `version`; the
+ *    fork decoupled package versioning from the upstream plugin lineage —
+ *    see .notes/UPSTREAM-SYNC.md.)
  * 3. getBundledPluginVersion() returns exactly the constant from the shipped
  *    code.js — the handshake's comparison anchor.
  * 4. computePluginUpdateAvailable() ignores the server version entirely.
@@ -36,9 +41,11 @@ import {
 } from "../src/core/websocket-server";
 
 const root = path.resolve(__dirname, "..");
-const pkgVersion: string = JSON.parse(
-	fs.readFileSync(path.join(root, "package.json"), "utf8"),
-).version;
+const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+// The plugin files are vendored from upstream, so PLUGIN_VERSION belongs to the
+// upstream lineage — anchor it to the synced upstream base (forkedFrom.version),
+// falling back to package version if this ever stops being a fork.
+const pluginLineageVersion: string = pkg.forkedFrom?.version ?? pkg.version;
 const codeJs = fs.readFileSync(
 	path.join(root, "figma-desktop-bridge", "code.js"),
 	"utf8",
@@ -59,10 +66,13 @@ describe("#62 plugin version drift", () => {
 		expect(parseBundledPluginVersion(codeJs)).toMatch(/^\d+\.\d+\.\d+$/);
 	});
 
-	it("PLUGIN_VERSION never exceeds package.json version", () => {
+	it("PLUGIN_VERSION never exceeds the synced upstream base (forkedFrom.version)", () => {
 		const pluginVersion = parseBundledPluginVersion(codeJs)!;
-		// May lag (server-only releases don't bump it) but must never lead.
-		expect(compareSemver(pluginVersion, pkgVersion)).toBeLessThanOrEqual(0);
+		// May lag (server-only releases don't bump it) but must never lead the
+		// upstream base the plugin files were vendored from.
+		expect(
+			compareSemver(pluginVersion, pluginLineageVersion),
+		).toBeLessThanOrEqual(0);
 	});
 
 	it("getBundledPluginVersion() reads the constant from the shipped code.js", () => {
