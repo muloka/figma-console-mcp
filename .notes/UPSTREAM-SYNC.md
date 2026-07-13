@@ -140,3 +140,7 @@ Derived caveats:
   trivial.
 - On every sync, update `package.json` `forkedFrom.version` to the new upstream
   base (keeps the plugin-version test and the machine-readable pointer honest).
+- Also update the "currently tracking upstream vX.Y.Z" line in the README fork
+  notice on each sync — it's the human-facing twin of `forkedFrom.version`.
+- npm READMEs are frozen per published version. To get README/metadata changes
+  onto the npm page, bump the version and republish (see Package identity).
