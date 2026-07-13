@@ -1,12 +1,18 @@
 {
-	"name": "figma-console-mcp",
-	"version": "1.35.0",
+	"name": "@muloka/figma-console-mcp",
+	"version": "0.1.0",
+	"forkedFrom": {
+		"name": "figma-console-mcp",
+		"version": "1.35.0",
+		"repository": "https://github.com/southleft/figma-console-mcp",
+		"note": "Fork tracking upstream. See .notes/UPSTREAM-SYNC.md for the delta and sync strategy (canonical source)."
+	},
 	"description": "The most comprehensive MCP server for Figma — design tokens, variables, components, write tools, version history diff, accessibility audits, FigJam, Slides, and more. Local (WebSocket Desktop Bridge plugin) and Cloudflare Workers (paired + remote) modes.",
 	"type": "module",
 	"main": "dist/local.js",
 	"types": "dist/local.d.ts",
 	"bin": {
-		"figma-console-mcp": "./dist/local.js"
+		"figma-console-mcp": "dist/local.js"
 	},
 	"files": [
 		"dist",
@@ -48,12 +54,19 @@
 		"claude",
 		"cloudflare"
 	],
-	"author": "Southleft",
+	"author": "muloka",
 	"license": "MIT",
+	"publishConfig": {
+		"access": "public"
+	},
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/southleft/figma-console-mcp.git"
+		"url": "git+https://github.com/muloka/figma-console-mcp.git"
 	},
+	"bugs": {
+		"url": "https://github.com/muloka/figma-console-mcp/issues"
+	},
+	"homepage": "https://github.com/muloka/figma-console-mcp#readme",
 	"engines": {
 		"node": ">=18.0.0"
 	},

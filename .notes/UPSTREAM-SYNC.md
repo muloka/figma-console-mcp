@@ -98,9 +98,45 @@ merged into upstream and deleted from origin during this sync.
   (fork implements locally); they flag the divergence so upstream can adopt if
   it wants.
 
+## Package identity
+
+Origin publishes as **`@muloka/figma-console-mcp`** (scoped), versioned
+**independently** of upstream starting at `0.1.0`. Upstream owns the unscoped
+`figma-console-mcp` on npm, so the fork cannot publish under that name; a scoped
+package also makes `npx @muloka/figma-console-mcp` resolve to the fork rather
+than upstream. This is the interim distribution path until upstream lands the
+fork's changes (#48/#52/#94) and closes its backlog — which, given the issue
+ages, may take a long time.
+
+Versioning is plain semver on its own cadence (`0.1.0 → 0.1.1 → …`), NOT tied to
+upstream numbering — prerelease/build-metadata schemes were rejected because a
+prerelease version doesn't move npm's `latest` dist-tag, which would break
+`npx`. The upstream base is recorded out of band:
+
+- **This doc** (the delta table header: "synced onto upstream vX.Y.Z") is the
+  canonical source of the upstream base.
+- **`package.json` `forkedFrom`** carries a static machine-readable pointer.
+  Update `forkedFrom.version` on every sync — it is also the anchor for the
+  plugin-version invariant (see below).
+
+Derived caveats:
+
+- **`forkedFrom.version` is the plugin-lineage anchor.** `PLUGIN_VERSION` in
+  `figma-desktop-bridge/code.js` is vendored from upstream, so
+  `tests/plugin-version-sync.test.ts` asserts it never exceeds
+  `forkedFrom.version` (not the fork's `version`). Bump `forkedFrom.version`
+  when you sync, or that test goes stale.
+- **`release.sh` stamps `PLUGIN_VERSION = --version`** when plugin files changed
+  (line ~279). For a fork release that touches `figma-desktop-bridge/`, that
+  would push the plugin version onto the fork's `0.x` scale and decouple it from
+  upstream's plugin lineage. Decide the intended behavior before cutting such a
+  release; a server-only fork release is unaffected.
+
 ## Housekeeping
 
 - `.notes/` is gitignored upstream; this file is tracked via an explicit
   `!.notes/UPSTREAM-SYNC.md` exception so the strategy travels with the fork.
 - Keep the delta table above current — it makes the next sync's triage step
   trivial.
+- On every sync, update `package.json` `forkedFrom.version` to the new upstream
+  base (keeps the plugin-version test and the machine-readable pointer honest).
