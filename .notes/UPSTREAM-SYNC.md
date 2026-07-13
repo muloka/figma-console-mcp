@@ -67,8 +67,9 @@ As of 2026-07-12, synced onto upstream v1.35.0:
 | Change | What | Notes |
 |---|---|---|
 | `mnklvnvw` | feat: Streamable HTTP MCP transport in local mode | Re-ported onto upstream's refactored local.ts (registerTools takes optional target; instructions hoisted to MCP_SERVER_INSTRUCTIONS; per-request HTTP servers also get wrapServerForIdentity) |
-| `yvxwpsul` | fix(bridge): close handler timeout + log dropped responses | ui.html hunks auto-merged; ui-full.html hunks dropped (upstream deleted that file) |
+| `yvxwpsul` | fix(bridge): close handler timeout + log dropped responses | ui.html hunks auto-merged; ui-full.html hunks dropped (upstream deleted that file). Completed by `kxmwyluz` |
 | `nnqvstvy` | fix(write-tools): VariableID: alias values | Complements upstream v1.34's {brace.reference} aliases — direct-by-id aliasing in batch create + setup_design_tokens value pass, documented in tool schema |
+| `kxmwyluz` | fix(bridge): clear handler-timeout timer + tests | Finishes `yvxwpsul`: clears the leaked setTimeout on settle. Adds tests/bridge-handler-dispatch.test.ts (7 tests incl. timeout firing + both dropped-response branches) and tests/plugin-assets-parse.test.ts (parses code.js/ui.html/manifest.json — they're outside the TS build, so a syntax error would otherwise reach Figma undetected) |
 | `lqomtprz` | chore: local dev setup (jj workflow, gitignore, notes) | Fork infrastructure |
 | `zlkukozk` | docs: this file + gitignore exception | Fork infrastructure |
 
@@ -80,6 +81,22 @@ Dropped in the v1.35.0 sync:
 The old feature bookmarks (`feature/design-lint-tool`,
 `feature/design-system-kit`, `feature/library-component-access`) were fully
 merged into upstream and deleted from origin during this sync.
+
+### Watch for next sync
+
+- **ui.html handler dispatch** carries a fork-only delta (30s handler timeout,
+  timer cleanup, dropped-response logging in the WS `onmessage` path). If
+  upstream ever adds its own handler-timeout/robustness code there, expect a
+  conflict — reconcile toward one timeout implementation, not two.
+- **Fork-only test files** with no upstream counterpart:
+  `tests/bridge-handler-dispatch.test.ts`, `tests/plugin-assets-parse.test.ts`.
+  These should rebase cleanly (new files) but will fail if upstream renames or
+  restructures `figma-desktop-bridge/` — the source guards assert specific
+  strings in `ui.html` and specific `manifest.json` entry points.
+- **Upstream tickets** now track all three feature deltas: HTTP transport →
+  #48, VariableID aliases → #52, close-handler robustness → #94. None are PR'd
+  (fork implements locally); they flag the divergence so upstream can adopt if
+  it wants.
 
 ## Housekeeping
 
