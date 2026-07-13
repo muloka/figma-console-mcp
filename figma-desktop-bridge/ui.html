@@ -1493,9 +1493,10 @@
             // Call the handler with a safety timeout, then send back the result
             var HANDLER_TIMEOUT_MS = 30000;
             var handlerSettled = false;
+            var handlerTimeoutId = null;
             var handlerPromise = Promise.resolve(handler(message.params || {}));
             var timeoutPromise = new Promise(function(_, reject) {
-              setTimeout(function() {
+              handlerTimeoutId = setTimeout(function() {
                 if (!handlerSettled) {
                   reject(new Error('Handler for ' + message.method + ' did not respond within ' + HANDLER_TIMEOUT_MS + 'ms'));
                 }
@@ -1505,6 +1506,7 @@
             Promise.race([handlerPromise, timeoutPromise])
               .then(function(result) {
                 handlerSettled = true;
+                if (handlerTimeoutId !== null) clearTimeout(handlerTimeoutId);
                 if (activeWs.readyState === 1) {
                   activeWs.send(JSON.stringify({ id: message.id, result: result }));
                 } else {
@@ -1513,6 +1515,7 @@
               })
               .catch(function(err) {
                 handlerSettled = true;
+                if (handlerTimeoutId !== null) clearTimeout(handlerTimeoutId);
                 if (activeWs.readyState === 1) {
                   activeWs.send(JSON.stringify({ id: message.id, error: err.message || String(err) }));
                 } else {
