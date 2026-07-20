@@ -1161,14 +1161,14 @@ export function registerFigmaAPITools(
 				.int()
 				.min(1)
 				.optional()
-				.describe("Page number for paginated results (1-based). Use when the response is too large to handle in one call. Applies to format='filtered' and format='full'. Default: 1"),
+				.describe("Page number for paginated results (1-based). Use when the response is too large to handle in one call. Applies to format='filtered' and format='full'. Default: 1. IMPORTANT: a page number beyond the last page is CLAMPED to the last page, not rejected — it returns that page's data again with currentPage set to the real last page. Drive iteration off pagination.hasNextPage; a loop that just increments page will repeat the final page forever."),
 			pageSize: z
 				.number()
 				.int()
 				.min(1)
 				.max(100)
 				.optional()
-				.describe("Number of variables per page (1-100). Applies to format='filtered' and format='full'. For format='full', pagination is applied only when page or pageSize is explicitly passed; otherwise the complete dataset is returned. Default: 50"),
+				.describe("Number of variables per page. Hard limit 100 — higher values are rejected with a validation error, not clamped. Default: 50. Applies to format='filtered' and format='full'. For format='full', pagination is applied only when page or pageSize is explicitly passed; otherwise the complete dataset is returned. SOFT LIMIT: a page that exceeds ~25K estimated tokens is auto-summarized, so the page is discarded rather than returned — measured on a 689-variable file, pageSize=100 reached ~16K tokens at standard verbosity and ~20K with verbosity='full' plus resolveAliases. 100 is safe at roughly 200 tokens/variable; prefer 50 when resolving aliases on a mode-heavy file."),
 			resolveAliases: z
 				.boolean()
 				.optional()

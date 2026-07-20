@@ -269,6 +269,22 @@ describe("Figma API Tools", () => {
 				expect(p2.pagination.hasPrevPage).toBe(true);
 			});
 
+			// Upstream behavior (paginateVariables clamps with Math.min), not part of
+			// the fork patch — but the pageSize/page descriptions now document it, so
+			// this guards the documentation rather than the fix. Safe to keep even if
+			// the fork patch is dropped.
+			it("clamps an out-of-range page to the last page instead of erroring", async () => {
+				const tool = serverWithManyVariables()._getTool("figma_get_variables");
+				const lastPage = Math.ceil(TOTAL / PAGE_SIZE);
+				const parsed = parseResult(
+					await tool.handler({ ...baseArgs, format: "full", page: 999, pageSize: PAGE_SIZE }),
+				);
+				// Not an error, not empty — the final page, re-served.
+				expect(parsed.pagination.currentPage).toBe(lastPage);
+				expect(parsed.pagination.hasNextPage).toBe(false);
+				expect(parsed.data.variables.length).toBe(TOTAL - (lastPage - 1) * PAGE_SIZE);
+			});
+
 			// The whole reason page/pageSize carry no zod .default(): without an
 			// "explicitly passed" signal, honoring them would truncate every
 			// unpaginated full response to 50.
