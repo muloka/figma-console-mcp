@@ -1,7 +1,9 @@
 # Plugin Manifest Discoverability
 
 **Date:** 2026-07-19 (revised 2026-07-20)
-**Status:** Approved 2026-07-20 — not yet implemented
+**Status:** Implemented 2026-07-20, reduced scope. Only §1 (the
+`MCP_SERVER_INSTRUCTIONS` SETUP section) was built. §2 (`docs/agent-usage.md`) was cut —
+see Non-Goals.
 **Scope:** Documentation and agent-instruction only. No CLI changes. No new flags.
 
 ## Problem
@@ -72,6 +74,12 @@ upstream keeps it inline at `src/local.ts:156`.
   flag that was `--print-path` plus one `execFile` call to open the OS file manager. The
   delta did not justify the surface area, and a second flag only helps people who already
   know it exists — the same discoverability trap `--print-path` is already in. Dropped.
+- **No `docs/agent-usage.md`.** Cut 2026-07-20. A documentation page only helps someone
+  who finds and reads it — the same discoverability trap that caused this whole issue.
+  `--print-path` was already documented and still failed to reach three separate users
+  (#12 ×2, #58, plus the report that prompted this). The page would also duplicate what
+  #100/#101 should fix at the source. The instructions block is kept precisely because it
+  does *not* require anyone to go looking: it ships in every handshake.
 - **No README or `docs/setup.md` edits.** Delegated to upstream #100. Both files are
   delta-free in this fork and stay that way.
 - **No new MCP tool.** `figma_get_status` already returns `pluginPath`, verified live.

@@ -128,6 +128,13 @@ const MCP_SERVER_INSTRUCTIONS = `## Figma Console MCP - Visual Design Workflow
 
 This MCP server enables AI-assisted design creation in Figma. Follow these mandatory workflows:
 
+### SETUP (read first if any tool reports no Figma connection)
+Call figma_get_status and read its \`pluginPath\` field — never guess or hardcode that path.
+Then tell the user to run \`npx @muloka/figma-console-mcp --print-path\` and import the printed
+manifest.json in Figma: Plugins → Development → Import plugin from manifest. On macOS that
+folder is hidden, so the file dialog will not show it: tell them to press Cmd+Shift+G in the
+dialog and paste the path. (On Windows the folder is visible; navigate to it normally.)
+
 ### VISUAL VALIDATION WORKFLOW (Required)
 After creating or modifying ANY visual design elements:
 1. **CREATE**: Execute design code via figma_execute
