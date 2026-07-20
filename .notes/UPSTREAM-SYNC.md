@@ -53,7 +53,22 @@ rebased forward on every sync.**
    - Emptied by rebase (upstream took the same fix): jj abandons these
      automatically; verify with `jj log`
 
-5. **Verify:** `npm run build && npm test`
+5. **Verify:** `npm test && npm run build:local`
+
+   CI runs this plus the typecheck ratchet automatically — the force-push in
+   step 6 fires the `push` trigger, so post-sync verification needs no separate
+   discipline. To check a rebase *before* pushing, run the workflow manually via
+   `workflow_dispatch`.
+
+   > The previous instruction here was `npm run build && npm test`, which could
+   > not pass. `npm run build` chains `build:local && build:cloudflare &&
+   > build:apps`, and `build:cloudflare` exits 2 on a known upstream type defect
+   > — so `&&` short-circuited and **`npm test` never ran**. Use `build:local`;
+   > the cloudflare target's errors are covered by the ratchet instead.
+   >
+   > Note if you are checking exit codes by hand: a shell wrapper around `npm`
+   > can mask them. Use `command npm` when the exit status is what you care
+   > about.
 
 6. **Push:** `jj git push --remote origin --bookmark main`
    (Non-fast-forward — expected; see above.)
@@ -74,9 +89,17 @@ As of 2026-07-12, synced onto upstream v1.35.0:
 | `lkvvzxyv` | chore: publish as @muloka/figma-console-mcp (v0.1.0) | Fork identity — scoped package name, `forkedFrom` block, scoped `publishConfig`. Root cause of the recurring `package.json` conflict on every sync |
 | `rynzsmvy` | docs: fork notice in README + npm badge fix (v0.1.1) | Fork identity — the install-this-fork banner at README:11. Touches a file upstream edits constantly; expect conflicts |
 | `uowxnlqo` | docs(spec): plugin manifest discoverability design | Fork infrastructure — `docs/superpowers/specs/`. Design only; implementation not yet landed. Delegates the doc fixes to upstream #100/#101 rather than patching README/setup.md locally |
-| `uxyxzrkw` | docs(spec): CI workflow design | Fork infrastructure — `docs/superpowers/specs/`. Design only; implementation not yet landed |
+| `uxyxzrkw` | docs(spec): CI workflow design | Fork infrastructure — `docs/superpowers/specs/`. Implemented by `xozospno`/`kpotskxm`/`vlrkronl` |
+| `xozospno` | ci: GitHub Actions workflow | **New file** `.github/workflows/ci.yml` — upstream has only `FUNDING.yml` there, so zero conflict surface. Node 22/24 test matrix + per-file typecheck ratchet. `push` on main is the post-sync trigger |
+| `kpotskxm` | chore: engines.node >=22, lockfile identity | `package.json` + `package-lock.json`. Both already carry fork delta, so this adds hunks to existing conflicts rather than new ones. Also synced the lockfile's stale `name`/`version` (still said `figma-console-mcp@1.35.0` from before the v0.1.0 rename) |
+| `vlrkronl` | ci: fix ratchet under implicit errexit | GitHub's `shell: bash` is `bash --noprofile --norc -e -o pipefail`; `set -uo pipefail` does not undo the `-e`, so the step died at the first (expected) non-zero tsc. Needs explicit `set +e`. Also actions v4 → v5 |
 | `lqomtprz` | chore: local dev setup (jj workflow, gitignore, notes) | Fork infrastructure |
 | `zlkukozk` | docs: this file + gitignore exception | Fork infrastructure |
+
+Changes whose only content is maintaining *this file* are not listed above —
+they would add a row saying they added a row. `zlkukozk` is listed because it
+created the file; subsequent table-keeping changes are not. Check
+`jj log -r 'main@upstream..main'` if you need the literal stack.
 
 Dropped in the v1.35.0 sync:
 - `a36f23b` feat(bridge): two-state status UI — superseded by upstream
@@ -108,6 +131,18 @@ into `.notes/specs/` silently emptied its change.
   These should rebase cleanly (new files) but will fail if upstream renames or
   restructures `figma-desktop-bridge/` — the source guards assert specific
   strings in `ui.html` and specific `manifest.json` entry points.
+- **Typecheck ratchet baseline is a per-sync triage item.** The baseline lives
+  inline in `.github/workflows/ci.yml` and currently reads: `mcp-app.ts` 6 + 6,
+  `src/index.ts` 3 (root target), `src/index.ts` 3 (cloudflare target) — 15
+  errors, all upstream defects in files this fork has no delta on. Any sync
+  touching `src/apps/*/ui/mcp-app.ts` or `src/index.ts` can move these:
+  - *More* errors, or errors in a file not listed → **CI fails**. Either the
+    sync introduced them or the fork did; triage before pushing.
+  - *Fewer* errors → CI passes with a `::notice::` saying the baseline is stale.
+    Lower it in the same change that syncs.
+  - A target reaching **zero** errors → CI fails deliberately, demanding the
+    baseline entries for that target be deleted rather than left to rot.
+  Treat a baseline edit as part of the sync, not a follow-up.
 - **Upstream tickets** now track the fork deltas: HTTP transport → #48,
   VariableID aliases → #52, close-handler robustness → #94, hardcoded
   serverInfo.version → #95. None are PR'd (fork implements locally); they flag
