@@ -65,8 +65,8 @@ command npm test && command npm run build:local
 jj bookmark set main -r @
 jj git push --remote origin --bookmark main
 
-# 5. publish
-command npm publish --ignore-scripts
+# 5. publish — REQUIRES a 2FA code, see below
+command npm publish --ignore-scripts --otp=<6-digit code>
 command npm view @muloka/figma-console-mcp version dist-tags
 
 # 6. release notes (optional) — on the fork's own repo, written by hand
@@ -255,6 +255,23 @@ command npm view @muloka/figma-console-mcp version dist-tags
 ---
 
 ## Known issues
+
+### Publishing requires a 2FA one-time password
+
+The npm account has 2FA enforced for publishes, so `npm publish` fails with `EOTP`
+unless given `--otp=<6-digit code>` from an authenticator app.
+
+**This makes publishing inherently interactive.** An agent can stage a release —
+version bump, lockfile, tests, build, push, CI — but cannot complete one. The final
+command has to be run by a human with the authenticator to hand. Codes expire in ~30s,
+so pasting one to an agent usually loses the race; run it yourself:
+
+```sh
+command npm publish --ignore-scripts --otp=123456
+```
+
+A failed OTP is harmless. The tarball is built and rejected at the auth step, leaving
+nothing partially published. Just re-run with a fresh code.
 
 ### npm token rotation
 
