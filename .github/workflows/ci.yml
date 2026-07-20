@@ -35,9 +35,9 @@ jobs:
         # 24 = Active LTS and the development runtime.
         node: [22, 24]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -55,9 +55,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm
@@ -67,8 +67,12 @@ jobs:
       - name: Typecheck ratchet
         shell: bash
         run: |
-          # No `set -e`: tsc is expected to exit non-zero, and the comparison
-          # below is what decides job status.
+          # GitHub's `shell: bash` runs with `-e` (errexit) already set —
+          # `bash --noprofile --norc -e -o pipefail`. tsc is *expected* to exit
+          # non-zero here, so errexit must be turned off explicitly or the step
+          # dies at the first tsc call and inherits its exit code before any
+          # comparison runs. `set -uo pipefail` alone does not undo it.
+          set +e
           set -uo pipefail
 
           # ── Baseline ────────────────────────────────────────────────────────
