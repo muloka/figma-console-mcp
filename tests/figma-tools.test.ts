@@ -200,6 +200,86 @@ describe("Figma API Tools", () => {
 			expect(parsed.source).toBe("desktop_connection");
 		});
 
+		// Regression guard for southleft/figma-console-mcp#98. This patch is
+		// fork-only — upstream still ignores page/pageSize under format='full'.
+		// If a sync silently reverts it, these fail rather than going unnoticed.
+		describe("format='full' pagination (fork patch, southleft#98)", () => {
+			const PAGE_SIZE = 10;
+			const TOTAL = 25;
+
+			function serverWithManyVariables() {
+				const connector = createMockDesktopConnector();
+				connector.getVariablesFromPluginUI = jest.fn().mockResolvedValue({
+					success: true,
+					variables: Array.from({ length: TOTAL }, (_, i) => ({
+						id: `v${i + 1}`,
+						name: `token-${String(i + 1).padStart(2, "0")}`,
+						resolvedType: "COLOR",
+						variableCollectionId: "c1",
+					})),
+					variableCollections: [{ id: "c1", name: "Colors" }],
+				});
+				const s = createMockServer();
+				registerFigmaAPITools(
+					s as any,
+					async () => createMockFigmaAPI() as any,
+					() => MOCK_FILE_URL,
+					new Map(),
+					undefined,
+					async () => connector as any,
+				);
+				return s;
+			}
+
+			const baseArgs = { includePublished: false, verbosity: "standard", enrich: false };
+
+			it("slices to pageSize instead of returning everything", async () => {
+				const tool = serverWithManyVariables()._getTool("figma_get_variables");
+				const parsed = parseResult(
+					await tool.handler({ ...baseArgs, format: "full", page: 1, pageSize: PAGE_SIZE }),
+				);
+				expect(parsed.data.variables).toHaveLength(PAGE_SIZE);
+			});
+
+			it("reports pagination metadata so callers can iterate", async () => {
+				const tool = serverWithManyVariables()._getTool("figma_get_variables");
+				const parsed = parseResult(
+					await tool.handler({ ...baseArgs, format: "full", page: 1, pageSize: PAGE_SIZE }),
+				);
+				expect(parsed.pagination).toMatchObject({
+					currentPage: 1,
+					pageSize: PAGE_SIZE,
+					totalVariables: TOTAL,
+					totalPages: Math.ceil(TOTAL / PAGE_SIZE),
+					hasNextPage: true,
+					hasPrevPage: false,
+				});
+			});
+
+			it("returns different variables for page 2 than page 1", async () => {
+				const tool = serverWithManyVariables()._getTool("figma_get_variables");
+				const p1 = parseResult(
+					await tool.handler({ ...baseArgs, format: "full", page: 1, pageSize: PAGE_SIZE }),
+				);
+				const p2 = parseResult(
+					await tool.handler({ ...baseArgs, format: "full", page: 2, pageSize: PAGE_SIZE }),
+				);
+				const ids = (r: any) => r.data.variables.map((v: any) => v.id);
+				expect(ids(p2)).not.toEqual(ids(p1));
+				expect(p2.pagination.hasPrevPage).toBe(true);
+			});
+
+			// The whole reason page/pageSize carry no zod .default(): without an
+			// "explicitly passed" signal, honoring them would truncate every
+			// unpaginated full response to 50.
+			it("does NOT paginate when neither page nor pageSize is passed", async () => {
+				const tool = serverWithManyVariables()._getTool("figma_get_variables");
+				const parsed = parseResult(await tool.handler({ ...baseArgs, format: "full" }));
+				expect(parsed.data.variables).toHaveLength(TOTAL);
+				expect(parsed.pagination).toBeUndefined();
+			});
+		});
+
 		it("returns variable data from connector in response", async () => {
 			const tool = server._getTool("figma_get_variables");
 			const result = await tool.handler({

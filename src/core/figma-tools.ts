@@ -1151,21 +1151,24 @@ export function registerFigmaAPITools(
 				.describe(
 					"DEPRECATED — setting this to true now raises an explicit error. The Puppeteer-based console parser no longer exists. Open the Figma Console MCP Desktop Bridge plugin in Figma Desktop and call figma_get_variables() without parseFromConsole; the plugin returns full variable data through the WebSocket bridge."
 				),
+			// NOTE: deliberately no .default() on either param. Every consumer below
+			// applies its own fallback (?? 1 / ?? 50), and leaving these undefined is
+			// what lets format='full' tell "caller asked for page 2" apart from
+			// "caller passed nothing" — without that distinction, honoring them would
+			// silently truncate every full response to 50 variables.
 			page: z
 				.number()
 				.int()
 				.min(1)
 				.optional()
-				.default(1)
-				.describe("Page number for paginated results (1-based). Use when response is too large (>1MB). Each page returns up to 50 variables."),
+				.describe("Page number for paginated results (1-based). Use when the response is too large to handle in one call. Applies to format='filtered' and format='full'. Default: 1"),
 			pageSize: z
 				.number()
 				.int()
 				.min(1)
 				.max(100)
 				.optional()
-				.default(50)
-				.describe("Number of variables per page (1-100). Default: 50. Smaller values reduce response size."),
+				.describe("Number of variables per page (1-100). Applies to format='filtered' and format='full'. For format='full', pagination is applied only when page or pageSize is explicitly passed; otherwise the complete dataset is returned. Default: 50"),
 			resolveAliases: z
 				.boolean()
 				.optional()
@@ -1468,6 +1471,23 @@ export function registerFigmaAPITools(
 						}
 					} else {
 						// format === 'full'
+						// Honor page/pageSize when the caller explicitly passed either one.
+						// Previously they were accepted, silently ignored, and omitted from
+						// the response, so a caller had no way to tell paging had not
+						// happened (southleft/figma-console-mcp#98).
+						//
+						// This runs BEFORE the token estimate on purpose: slicing is exactly
+						// how a caller retrieves a large dataset in pieces that fit under the
+						// limit, so summarizing first would defeat the request.
+						//
+						// Both params are undefined unless passed (no zod .default()), so an
+						// un-paginated full request still returns the complete dataset.
+						if (page !== undefined || pageSize !== undefined) {
+							const paginated = paginateVariables(responseData, page ?? 1, pageSize ?? 50);
+							responseData = paginated.data;
+							paginationInfo = paginated.pagination;
+						}
+
 						// Check if we need to auto-summarize
 						const estimatedTokens = estimateTokens(responseData);
 						if (estimatedTokens > 25000) {
@@ -1785,20 +1805,31 @@ export function registerFigmaAPITools(
 							}
 						}
 
-						// Apply pagination if requested
+						// Apply pagination if requested.
+						//
+						// page/pageSize no longer carry zod .default() values (see the note on
+						// the schema), so this branch restates the 1/50 it previously received
+						// implicitly. That keeps the REST path's behavior byte-identical: it
+						// has always paginated to 50 whether or not the caller asked. Reaching
+						// this code requires a Figma Enterprise plan, so it cannot be exercised
+						// from this fork — left deliberately unchanged rather than "fixed"
+						// blind. The divergent field names here vs. paginateVariables() are
+						// southleft/figma-console-mcp#99.
+						const restPage = page ?? 1;
+						const restPageSize = pageSize ?? 50;
 						let paginationInfo;
-						if (pageSize) {
-							const startIdx = (page - 1) * pageSize;
-							const endIdx = startIdx + pageSize;
+						if (restPageSize) {
+							const startIdx = (restPage - 1) * restPageSize;
+							const endIdx = startIdx + restPageSize;
 							const totalVars = localFormatted.variables.length;
 
 							paginationInfo = {
-								page,
-								pageSize,
+								page: restPage,
+								pageSize: restPageSize,
 								totalItems: totalVars,
-								totalPages: Math.ceil(totalVars / pageSize),
+								totalPages: Math.ceil(totalVars / restPageSize),
 								hasNextPage: endIdx < totalVars,
-								hasPrevPage: page > 1,
+								hasPrevPage: restPage > 1,
 							};
 
 							localFormatted.variables = localFormatted.variables.slice(startIdx, endIdx);
@@ -2027,6 +2058,10 @@ export function registerFigmaAPITools(
 
 							// Apply format logic
 							let responseData = dataForCache;
+							// Declared out here so the response builder below can see it —
+							// it was previously scoped inside the 'filtered' branch, computed,
+							// and then unreachable at return time.
+							let paginationInfo: any = null;
 
 							if (format === 'summary') {
 								responseData = generateSummary(dataForCache);
@@ -2048,7 +2083,6 @@ export function registerFigmaAPITools(
 								);
 
 								// Apply pagination (CRITICAL - was missing!)
-								let paginationInfo: any = null;
 								const paginated = paginateVariables(
 									responseData,
 									page || 1,
@@ -2109,6 +2143,20 @@ export function registerFigmaAPITools(
 								});
 							} else {
 								// format === 'full'
+								// Same fix as the cached path above (southleft#98): honor
+								// page/pageSize when explicitly passed, before the token
+								// estimate, so slicing is what keeps a large dataset under the
+								// limit rather than the summarizer discarding it.
+								//
+								// This branch serves cache-miss requests. It is a separate code
+								// path from the cached one and needed the fix independently —
+								// a live check against a warm cache exercises only the other.
+								if (page !== undefined || pageSize !== undefined) {
+									const paginated = paginateVariables(responseData, page ?? 1, pageSize ?? 50);
+									responseData = paginated.data;
+									paginationInfo = paginated.pagination;
+								}
+
 								// Check if we need to auto-summarize
 								const estimatedTokens = estimateTokens(responseData);
 								if (estimatedTokens > 25000) {
@@ -2214,6 +2262,11 @@ export function registerFigmaAPITools(
 												timestamp: dataForCache.timestamp,
 												data: responseData,
 												cached: false,
+												// paginationInfo was computed above and then dropped on the
+												// floor, so a cache-miss request through the Desktop Bridge
+												// received sliced data with no indication more pages existed
+												// — silent truncation. Same shape the cache path returns.
+												...(paginationInfo && { pagination: paginationInfo }),
 											}
 										),
 									},
