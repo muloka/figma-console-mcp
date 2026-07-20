@@ -212,9 +212,12 @@ Temporary Items
 .vscode/mcp.json
 .env.mcp
 
-# Internal notes and drafts (UPSTREAM-SYNC.md is tracked: fork sync strategy)
+# Internal notes and drafts. Two exceptions are tracked because CLAUDE.md
+# instructs reading them and an untracked copy does not survive a fresh clone —
+# RELEASING.md was lost exactly that way and had to be reconstructed.
 .notes/*
 !.notes/UPSTREAM-SYNC.md
+!.notes/RELEASING.md
 
 # Claude Code agent worktrees and Playwright CLI debug artifacts
 .claude/worktrees/
