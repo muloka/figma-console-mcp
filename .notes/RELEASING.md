@@ -5,13 +5,90 @@ in `.notes/`, which `.gitignore` excludes except for named exceptions, so it nev
 survived in the repo. This file is now tracked via a `.gitignore` exception so that
 cannot happen again.
 
-`CLAUDE.md` points here before any release. Read the **Fork landmines** section first —
-`scripts/release.sh` is byte-identical to upstream's and makes several assumptions that
-are wrong for this fork.
+`CLAUDE.md` points here before any release.
 
 ---
 
-## Fork landmines
+## Do not run `scripts/release.sh`
+
+**Verified by dry-run on 2026-07-20 for `--version 0.2.0`.** The script is byte-identical
+to upstream's, written for `southleft/figma-console-mcp` publishing `figma-console-mcp`
+on a `1.x` line. For this fork it is actively harmful.
+
+It reported **28 file changes, 33 replacements**. The fork's entire delta against its
+v1.35.0 base is **20 files**. Of the ~15 files the script touches, only three already
+carry fork delta (`package.json`, `README.md`, `package-lock.json`). The rest have
+**zero delta today** and would gain some:
+
+```
+docs/mint.json    docs/tools.md       docs/architecture.md    docs/setup.md
+docs/index.mdx    docs/introduction.md    docs/mode-comparison.md
+docs/figma-mcp-vs-figma-console-mcp.md    src/index.ts
+src/core/tokens-tools.ts    figma-desktop-bridge/code.js    CHANGELOG.md
+```
+
+That roughly doubles the fork's footprint, and the new entries are upstream's
+most-churned docs. `UPSTREAM-SYNC.md` states the fork's identity is a small legible
+delta; this is the second-most expensive thing that could be done to it, after the
+repo-wide biome reformat the CI spec already rejected.
+
+**What a publish actually needs is one line: the `version` field in `package.json`.**
+Everything else in the script serves upstream's docs site and release cadence.
+
+Use the **Minimal release** procedure below. The landmine details are kept afterward
+because they explain *why*, and because anyone tempted to run the script with flags
+should know what each step does.
+
+---
+
+## Minimal release
+
+```sh
+# 0. preflight — token expiry is the most common failure, check it first
+command npm whoami                       # 401 => see Known issues, stop here
+
+# 1. version
+#    breaking (engines narrowing, tool behavior change) => bump minor: 0.1.x -> 0.2.0
+#    features / fixes                                   => bump patch: 0.2.0 -> 0.2.1
+$EDITOR package.json                     # "version" field only
+command npm install --package-lock-only
+
+# 2. confirm nothing else moved
+jj diff --stat                           # expect exactly: package.json, package-lock.json
+grep -o "var PLUGIN_VERSION = '[0-9.]*'" figma-desktop-bridge/code.js
+#    ^ must equal forkedFrom.version (vendored from upstream), NOT the fork version
+
+# 3. verify
+command npm test && command npm run build:local
+
+# 4. push, wait for CI green
+jj bookmark set main -r @
+jj git push --remote origin --bookmark main
+
+# 5. publish
+command npm publish --ignore-scripts
+command npm view @muloka/figma-console-mcp version dist-tags
+
+# 6. release notes (optional) — on the fork's own repo, written by hand
+gh release create v0.2.0 --repo muloka/figma-console-mcp --notes "..."
+```
+
+Notes on the non-obvious bits:
+
+- **`command npm`, not `npm`** — a `~/.zshrc` wrapper on this machine has masked npm
+  exit codes. Fixed 2026-07-20, but `command npm` is immune regardless.
+- **`build:local`, not `build`** — `npm run build` chains `build:cloudflare`, which
+  exits 2 on a known upstream type defect, so `&&` short-circuits and tests never run.
+- **`--ignore-scripts`** — `prepublishOnly` runs `npm run build`, same failure.
+- **Do not add a `CHANGELOG.md` entry.** Both this fork and upstream *prepend* to the
+  same location, so any fork entry conflicts on every sync. Put release notes in a
+  GitHub Release on `muloka/figma-console-mcp` instead.
+- **No `v*` tags are created.** The fork has none, and step 3b of `release.sh` depends
+  on them — see landmine 1.
+
+---
+
+## Fork landmines (why the script is unusable)
 
 `scripts/release.sh` carries **zero fork delta**. It was written for
 `southleft/figma-console-mcp` publishing as `figma-console-mcp` on a `1.x` line. This
@@ -182,12 +259,21 @@ command npm view @muloka/figma-console-mcp version dist-tags
 ### npm token rotation
 
 Granular access tokens expire after 90 days. When the token in `~/.npmrc` expires,
-`npm whoami` returns 401. `release.sh` prechecks this before touching any files
-(Phase 0 in the script), specifically so the failure does not surface at Phase 5 with
-version bumps and a GitHub Release already committed.
+`npm whoami` returns 401.
 
-If it 401s: mint a new granular token at npmjs.com with **read and write** on
-`@muloka/figma-console-mcp`, then `npm login` or update `~/.npmrc`.
+**Hit on 2026-07-20 during the 0.2.0 release** — which is why step 0 of the minimal
+procedure checks it before anything else. `release.sh` has the same precheck for the
+same reason: without it the failure surfaces at publish time, after version bumps,
+CHANGELOG scaffolding, and a GitHub Release have already happened and need manual
+cleanup.
+
+Fix: mint a new granular token at npmjs.com with **read and write** on
+`@muloka/figma-console-mcp`, then `npm login` or update `~/.npmrc`. It is an
+interactive login — an agent cannot do it for you.
+
+Recovering a half-done release: if the version bump is already committed and pushed but
+the publish failed, nothing is broken. The repo simply claims a version npm does not
+have yet. Rotate the token and run step 5 alone; no need to redo or revert anything.
 
 ### `npm` exit codes are masked on this machine
 
