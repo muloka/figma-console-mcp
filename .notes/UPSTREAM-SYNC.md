@@ -77,7 +77,7 @@ rebased forward on every sync.**
 
 ## Current fork delta
 
-As of 2026-07-12, synced onto upstream v1.35.0:
+As of 2026-07-20, synced onto upstream **v1.36.0**:
 
 | Change | What | Notes |
 |---|---|---|
@@ -102,6 +102,38 @@ Changes whose only content is maintaining *this file* are not listed above —
 they would add a row saying they added a row. `zlkukozk` is listed because it
 created the file; subsequent table-keeping changes are not. Check
 `jj log -r 'main@upstream..main'` if you need the literal stack.
+
+### v1.36.0 sync (2026-07-20)
+
+Upstream shipped one feature: **target lock for multi-file parallel work** —
+`figma_navigate` gains a `lock` param pinning the active file so connections,
+reconnects, and the user's own selection/page changes elsewhere cannot move it
+(upstream #72). Relevant to agent-plus-human parallel work.
+
+Nothing was dropped — the feature is orthogonal to every fork patch. Neither
+#98 (pagination) nor #95 (serverInfo.version) was fixed, so `tkywkxyq` and
+`ouvpoytt` both stay.
+
+Conflicts were confined to **two files**, both expected:
+
+- `package.json` at `lkvvzxyv` — upstream bumped 1.35.0 → 1.36.0 against the
+  fork's scoped identity. Resolved by keeping fork identity and advancing
+  `forkedFrom.version` to 1.36.0.
+- `package-lock.json` at `kpotskxm` — resolved by taking upstream's tree
+  wholesale (`jj file show -r main@upstream package-lock.json`) then re-running
+  `npm install --package-lock-only` to re-apply name/version/engines. Do it this
+  way rather than regenerating from scratch, which can drift transitive
+  versions.
+
+Resolving those two cleared conflict markers from all 18 affected commits.
+
+Verified after: `npm ci` clean, 1367 tests (up from 1360 — upstream's new
+`tests/websocket-bridge.test.ts` adds 7), `build:local` clean, and the
+**typecheck ratchet baseline unchanged at 6/6/3**, so no baseline edit needed.
+
+`PLUGIN_VERSION` stays at `1.35.0`: upstream's own v1.36.0 still ships that
+value because `figma-desktop-bridge/` was untouched in the release. **No plugin
+re-import required.**
 
 Dropped in the v1.35.0 sync:
 - `a36f23b` feat(bridge): two-state status UI — superseded by upstream
