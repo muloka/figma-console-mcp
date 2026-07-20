@@ -92,6 +92,7 @@ As of 2026-07-12, synced onto upstream v1.35.0:
 | `uxyxzrkw` | docs(spec): CI workflow design | Fork infrastructure — `docs/superpowers/specs/`. Implemented by `xozospno`/`kpotskxm`/`vlrkronl` |
 | `xozospno` | ci: GitHub Actions workflow | **New file** `.github/workflows/ci.yml` — upstream has only `FUNDING.yml` there, so zero conflict surface. Node 22/24 test matrix + per-file typecheck ratchet. `push` on main is the post-sync trigger |
 | `kpotskxm` | chore: engines.node >=22, lockfile identity | `package.json` + `package-lock.json`. Both already carry fork delta, so this adds hunks to existing conflicts rather than new ones. Also synced the lockfile's stale `name`/`version` (still said `figma-console-mcp@1.35.0` from before the v0.1.0 rename) |
+| `tkywkxyq` | fix(variables): page/pageSize under format=full | **PROVISIONAL — first delta in `src/core/figma-tools.ts`.** Carried only to unblock tokotoko work that cannot be evaluated until paging functions. **Drop when** upstream fixes #98, or the tokotoko use case concludes it is unnecessary. That file saw 11 upstream commits in the 3 months to 2026-07, so expect to re-resolve this on most syncs — weigh dropping it before re-resolving twice. Guarded by 4 tests in `tests/figma-tools.test.ts` |
 | `zkvupptq` | feat(local): SETUP section in handshake instructions | Extends the fork-only `MCP_SERVER_INSTRUCTIONS` — see `mnklvnvw`, which owns that constant. ~6 lines telling an agent to read `pluginPath` from `figma_get_status` rather than guess it, and that Figma's import dialog hides the dot-directory on macOS (Cmd+Shift+G to reach it). Upstream's inline instructions at `src/local.ts:156` carry no setup content at all → #101. Implements `uowxnlqo` §1; §2 of that spec was cut |
 | `vlrkronl` | ci: fix ratchet under implicit errexit | GitHub's `shell: bash` is `bash --noprofile --norc -e -o pipefail`; `set -uo pipefail` does not undo the `-e`, so the step died at the first (expected) non-zero tsc. Needs explicit `set +e`. Also actions v4 → v5 |
 | `lqomtprz` | chore: local dev setup (jj workflow, gitignore, notes) | Fork infrastructure |
@@ -132,6 +133,22 @@ into `.notes/specs/` silently emptied its change.
   These should rebase cleanly (new files) but will fail if upstream renames or
   restructures `figma-desktop-bridge/` — the source guards assert specific
   strings in `ui.html` and specific `manifest.json` entry points.
+- **`src/core/figma-tools.ts` is now a conflict surface** (`tkywkxyq`), where it
+  previously had zero delta. Upstream changed that file 11 times in the 3 months
+  to 2026-07 — the highest-churn file the fork touches. The patch is small and
+  localized (two `if (page !== undefined || pageSize !== undefined)` blocks plus
+  the zod schema losing its `.default()`s), but it is deliberately temporary:
+  - Re-check `southleft/figma-console-mcp#98` on every sync. If upstream has
+    fixed it, **abandon `tkywkxyq`** rather than reconciling.
+  - If the tokotoko use case that motivated it concludes paging is not needed,
+    abandon it then too. It was carried to make that evaluation possible, not
+    because the fork independently needs it.
+  - Do NOT extend it to fix #99 (the divergent REST pagination field names).
+    That path needs a Figma Enterprise plan, is unreachable from this fork, and
+    the REST branch was deliberately left byte-identical.
+  - `tests/figma-tools.test.ts` carries 4 fork-only tests guarding this. If the
+    patch is dropped, drop them with it — otherwise they fail against upstream's
+    (correct-for-upstream) behavior.
 - **Typecheck ratchet baseline is a per-sync triage item.** The baseline lives
   inline in `.github/workflows/ci.yml` and currently reads: `mcp-app.ts` 6 + 6,
   `src/index.ts` 3 (root target), `src/index.ts` 3 (cloudflare target) — 15
