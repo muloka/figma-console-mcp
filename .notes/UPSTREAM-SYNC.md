@@ -71,6 +71,10 @@ As of 2026-07-12, synced onto upstream v1.35.0:
 | `nnqvstvy` | fix(write-tools): VariableID: alias values | Complements upstream v1.34's {brace.reference} aliases — direct-by-id aliasing in batch create + setup_design_tokens value pass, documented in tool schema |
 | `kxmwyluz` | fix(bridge): clear handler-timeout timer + tests | Finishes `yvxwpsul`: clears the leaked setTimeout on settle. Adds tests/bridge-handler-dispatch.test.ts (7 tests incl. timeout firing + both dropped-response branches) and tests/plugin-assets-parse.test.ts (parses code.js/ui.html/manifest.json — they're outside the TS build, so a syntax error would otherwise reach Figma undetected) |
 | `ouvpoytt` | fix(local): un-hardcode serverInfo.version | Both McpServer constructors reported a hardcoded "0.1.0" in the MCP handshake; wired to package.json via PACKAGE_ROOT so version detection (peer_info() / toko figma status) works. Upstream has the same bug at its one stdio constructor → #95 |
+| `lkvvzxyv` | chore: publish as @muloka/figma-console-mcp (v0.1.0) | Fork identity — scoped package name, `forkedFrom` block, scoped `publishConfig`. Root cause of the recurring `package.json` conflict on every sync |
+| `rynzsmvy` | docs: fork notice in README + npm badge fix (v0.1.1) | Fork identity — the install-this-fork banner at README:11. Touches a file upstream edits constantly; expect conflicts |
+| `uowxnlqo` | docs(spec): plugin manifest discoverability design | Fork infrastructure — `docs/superpowers/specs/`. Design only; implementation not yet landed. Delegates the doc fixes to upstream #100/#101 rather than patching README/setup.md locally |
+| `uxyxzrkw` | docs(spec): CI workflow design | Fork infrastructure — `docs/superpowers/specs/`. Design only; implementation not yet landed |
 | `lqomtprz` | chore: local dev setup (jj workflow, gitignore, notes) | Fork infrastructure |
 | `zlkukozk` | docs: this file + gitignore exception | Fork infrastructure |
 
@@ -82,6 +86,16 @@ Dropped in the v1.35.0 sync:
 The old feature bookmarks (`feature/design-lint-tool`,
 `feature/design-system-kit`, `feature/library-component-access`) were fully
 merged into upstream and deleted from origin during this sync.
+
+### Where fork-only documents live
+
+Design specs go in **`docs/superpowers/specs/`** — a directory upstream does not have, so
+they rebase as clean file-adds indefinitely.
+
+Not `.notes/`: `.gitignore:216` is `.notes/*` with a single exception for
+`UPSTREAM-SYNC.md`. That directory is deliberately untracked scratch space, so anything
+filed there disappears from the repo. Verified the hard way on 2026-07-20 — moving a spec
+into `.notes/specs/` silently emptied its change.
 
 ### Watch for next sync
 
