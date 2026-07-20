@@ -1,0 +1,176 @@
+# CI for the @muloka fork. See docs/superpowers/specs/2026-07-20-ci-workflow-design.md
+#
+# The `push` trigger is what makes this cover post-sync verification for free:
+# UPSTREAM-SYNC.md step 6 force-pushes origin main after every rebase, so this
+# runs automatically on every sync. `workflow_dispatch` lets you verify a rebase
+# before pushing it.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# This workflow only reads the repo; the default GITHUB_TOKEN grants more.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Cancel superseded PR runs, but never cancel a run on main — a cancelled
+  # post-sync run is exactly the signal this workflow exists to produce.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: test (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # 22 = Maintenance LTS (through 2027-04) and the floor this fork claims.
+        # 24 = Active LTS and the development runtime.
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Build (local)
+        run: npm run build:local
+
+  typecheck-ratchet:
+    name: typecheck ratchet
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck ratchet
+        shell: bash
+        run: |
+          # No `set -e`: tsc is expected to exit non-zero, and the comparison
+          # below is what decides job status.
+          set -uo pipefail
+
+          # ── Baseline ────────────────────────────────────────────────────────
+          # Known-failing files and their error counts, keyed "<target>:<path>".
+          # All are upstream defects in files this fork carries no delta on, so
+          # they will not be fixed here. If a sync changes these counts, update
+          # this map — see "Watch for next sync" in .notes/UPSTREAM-SYNC.md.
+          declare -A BASELINE=(
+            ["root:src/apps/token-browser/ui/mcp-app.ts"]=6
+            ["root:src/apps/design-system-dashboard/ui/mcp-app.ts"]=6
+            ["root:src/index.ts"]=3
+            ["cloudflare:src/index.ts"]=3
+          )
+
+          fail=0
+          declare -A SEEN=()
+
+          # Matches lines like:  src/index.ts(103,15): error TS2352: ...
+          ERR_RE='^[^(]+\([0-9]+,[0-9]+\): error TS'
+
+          run_target() {
+            local label="$1"; shift
+            local log="/tmp/tsc-${label}.log"
+
+            npx tsc "$@" --noEmit >"$log" 2>&1
+            local ec=$?
+
+            echo "::group::tsc ${label} (exit ${ec})"
+            cat "$log"
+            echo "::endgroup::"
+
+            local parsed
+            parsed=$(grep -cE "$ERR_RE" "$log")
+            parsed=${parsed:-0}
+
+            # A compiler that failed to run is not a clean typecheck. Without
+            # this, a config error or OOM emits no parseable error lines, every
+            # file counts 0, and the job would pass having checked nothing.
+            if [ "$ec" -ne 0 ] && [ "$ec" -ne 2 ]; then
+              echo "::error::tsc ${label} exited ${ec} — compiler failure, not type errors. Run is invalid."
+              fail=1
+              return
+            fi
+            if [ "$ec" -ne 0 ] && [ "$parsed" -eq 0 ]; then
+              echo "::error::tsc ${label} exited ${ec} but no error lines were parsed — output format not understood. Run is invalid."
+              fail=1
+              return
+            fi
+
+            # Exit 0 means this target is now entirely clean. That is good news,
+            # but it makes the whole baseline for this target obsolete, so it is
+            # a hard stop rather than a notice: remove those entries.
+            if [ "$ec" -eq 0 ]; then
+              local baselined=0
+              for key in "${!BASELINE[@]}"; do
+                case "$key" in "${label}:"*) baselined=1 ;; esac
+              done
+              if [ "$baselined" -eq 1 ]; then
+                echo "::error::tsc ${label} exited 0 — no errors at all, but the baseline still lists entries for this target. Remove them."
+                fail=1
+              fi
+              return
+            fi
+
+            while read -r count path; do
+              [ -z "${path:-}" ] && continue
+              SEEN["${label}:${path}"]=$count
+            done < <(grep -oE "$ERR_RE" "$log" | sed 's/(.*//' | sort | uniq -c)
+          }
+
+          run_target root
+          run_target cloudflare -p tsconfig.cloudflare.json
+
+          echo "── observed ──"
+          for key in "${!SEEN[@]}"; do echo "  ${key} = ${SEEN[$key]}"; done
+
+          # Regressions: more errors than baselined, or errors in a file that is
+          # not baselined at all (expected defaults to 0).
+          for key in "${!SEEN[@]}"; do
+            actual=${SEEN[$key]}
+            expected=${BASELINE[$key]:-0}
+            if [ "$actual" -gt "$expected" ]; then
+              if [ "$expected" -eq 0 ]; then
+                echo "::error::${key}: ${actual} error(s), not in baseline — new type errors introduced"
+              else
+                echo "::error::${key}: ${actual} error(s), baseline ${expected} — regression"
+              fi
+              fail=1
+            elif [ "$actual" -lt "$expected" ]; then
+              echo "::notice::${key}: ${actual} error(s), baseline ${expected} — baseline is stale, lower it"
+            fi
+          done
+
+          # Baselined files that produced nothing: also stale, but not a failure.
+          for key in "${!BASELINE[@]}"; do
+            if [ -z "${SEEN[$key]:-}" ]; then
+              echo "::notice::${key}: 0 errors, baseline ${BASELINE[$key]} — fixed upstream, remove from baseline"
+            fi
+          done
+
+          if [ "$fail" -ne 0 ]; then
+            echo "Typecheck ratchet FAILED."
+            exit 1
+          fi
+          echo "Typecheck ratchet passed."
