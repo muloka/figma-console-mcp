@@ -1,9 +1,26 @@
 # Plugin Manifest Discoverability
 
 **Date:** 2026-07-19 (revised 2026-07-20)
-**Status:** Implemented 2026-07-20, reduced scope. Only §1 (the
-`MCP_SERVER_INSTRUCTIONS` SETUP section) was built. §2 (`docs/agent-usage.md`) was cut —
-see Non-Goals.
+**Status:** **CLOSED 2026-07-20.** Nothing further to build here.
+
+- **§1 — `MCP_SERVER_INSTRUCTIONS` SETUP section: shipped** in `v0.2.0` (`zkvupptq`).
+  An agent hitting a disconnected bridge is now told to read `pluginPath` from
+  `figma_get_status` and that Figma's import dialog hides the dot-directory on macOS
+  (⌘⇧G). Verified present in a live `initialize` response.
+- **§2 — `docs/agent-usage.md`: cut.** See Non-Goals.
+- **Everything else: delegated upstream** as
+  [southleft#100](https://github.com/southleft/figma-console-mcp/issues/100) (the README
+  contradiction) and [southleft#101](https://github.com/southleft/figma-console-mcp/issues/101)
+  (no surface mentions the directory is hidden). Both propose the fix at the source, for
+  everyone, in files this fork carries zero delta on.
+
+**Caveat on "delegated":** #100 and #101 were **filed, not fixed**. As of 2026-07-20 both
+are open with no maintainer response, alongside #12 and #58 which have described the same
+pain since March. Do not read this closure as "upstream handled it" — read it as "the
+fork built the part it should own, and reported the rest." If those issues are still open
+whenever someone next hits this, the ⌘⇧G workaround is the answer, and it costs a
+sentence to relay.
+
 **Scope:** Documentation and agent-instruction only. No CLI changes. No new flags.
 
 ## Problem
