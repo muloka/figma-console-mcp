@@ -7,7 +7,7 @@ alterations.
 
 | Remote | Repo | Role |
 |---|---|---|
-| `origin` | muloka/figma-console-mcp | **toko-figma-console-mcp** — friendlier for agentic use (e.g. tokotoko) |
+| `origin` | muloka/figma-console-mcp | the fork — friendlier for agentic use |
 | `upstream` | southleft/figma-console-mcp | generic Figma use case; source of releases |
 
 Never open PRs against upstream. Origin is a deliberately divergent fork,
@@ -15,12 +15,12 @@ not a contribution staging area.
 
 ## The model: rebased patch-stack
 
-**origin `main` = upstream `main` + a small stack of toko-specific commits,
+**origin `main` = upstream `main` + a small stack of fork-specific commits,
 rebased forward on every sync.**
 
 - The fork's identity is its *delta* — keep that delta small and legible.
 - Rebase, don't merge: repeated merges bury the delta in topology and make
-  "what does toko actually change?" unanswerable. A linear stack on top of
+  "what does the fork actually change?" unanswerable. A linear stack on top of
   upstream keeps it one `jj log` away.
 - jj makes this cheap: conflicts don't halt a rebase — they're recorded in
   the affected commits and resolved at leisure.
@@ -42,6 +42,9 @@ rebased forward on every sync.**
    For each fork commit, decide: still unique (keep), superseded by an
    upstream equivalent (abandon), or partially overlapping (expect
    conflicts, plan to re-resolve on top of upstream's version).
+
+   That decides the *cost* of the sync. Decide its *value* separately —
+   see "Is a sync worth pulling?" below — before committing to the rebase.
 
 3. **Rebase the stack:** `jj rebase -b main -d main@upstream`
    Moves the whole delta onto the new upstream tip and carries the `main`
@@ -75,6 +78,50 @@ rebased forward on every sync.**
 
 7. **Update the delta list below.**
 
+## Is a sync worth pulling?
+
+The procedure above measures a sync's *cost* (conflicts against the fork
+delta). This measures its *value*, which is usually low — and the two are
+independent. A sync can be cheap and worthless, or expensive and mandatory.
+
+**The fork has one real consumer, and its usage exercises ~10 of upstream's
+~111 tools.** Full map: `docs/superpowers/specs/2026-07-22-consumer-usage-footprint.md`.
+The used set (confirmed at the consumer's call sites):
+
+```
+figma_execute  figma_get_status  figma_get_variables  figma_get_styles
+figma_rename_node  figma_rename_variable  figma_delete_variable
+figma_batch_create_variables  figma_batch_update_variables
+figma_setup_design_tokens
+```
+
+So classify what upstream shipped since the last sync (`jj log -r 'main..main@upstream'`,
+and diff the files it touched). It is **high value** if it touches any of:
+
+- **the used-10 tools or their handlers** — `src/core/write-tools.ts`
+  (variable ops), `src/core/figma-tools.ts` (`get_variables`/`get_styles`),
+  `get_status` in `src/local.ts`;
+- **the transport spine** the used tools ride — `figma-connector.ts`,
+  `websocket-connector.ts`, `websocket-server.ts`, the HTTP transport;
+- **`figma-desktop-bridge/`** — the plugin commands `execute` + the writes
+  depend on (also the plugin-version invariant, see Package identity);
+- **shared security / dependency** fixes;
+- **a fix to a carried fork patch** (e.g. #98 pagination → lets you abandon
+  `tkywkxyq`; #95 serverInfo.version → `ouvpoytt`).
+
+It is **near-zero value** if upstream's changes are confined to the unused 101
+— new tools, or features on slides / FigJam / slots / annotations / token
+export-import / diff-version / enrichment / accessibility / design-system.
+`figma_execute` already covers anything the consumer might want from those, so
+the fork gains nothing but rebase overhead. **Defer** such a sync: stay on the
+current base and pull later, when upstream ships something on the used surface
+or fixes a carried patch. (The v1.36.0 target-lock feature is a textbook
+example — orthogonal to every used tool; pulled only because it was also
+cheap.)
+
+Record the verdict in the per-sync notes either way — "deferred, upstream
+vX.Y touched only unused surface" is as useful to future-you as a sync log.
+
 ## Current fork delta
 
 As of 2026-07-20, synced onto upstream **v1.36.0**:
@@ -85,14 +132,14 @@ As of 2026-07-20, synced onto upstream **v1.36.0**:
 | `yvxwpsul` | fix(bridge): close handler timeout + log dropped responses | ui.html hunks auto-merged; ui-full.html hunks dropped (upstream deleted that file). Completed by `kxmwyluz` |
 | `nnqvstvy` | fix(write-tools): VariableID: alias values | Complements upstream v1.34's {brace.reference} aliases — direct-by-id aliasing in batch create + setup_design_tokens value pass, documented in tool schema |
 | `kxmwyluz` | fix(bridge): clear handler-timeout timer + tests | Finishes `yvxwpsul`: clears the leaked setTimeout on settle. Adds tests/bridge-handler-dispatch.test.ts (7 tests incl. timeout firing + both dropped-response branches) and tests/plugin-assets-parse.test.ts (parses code.js/ui.html/manifest.json — they're outside the TS build, so a syntax error would otherwise reach Figma undetected) |
-| `ouvpoytt` | fix(local): un-hardcode serverInfo.version | Both McpServer constructors reported a hardcoded "0.1.0" in the MCP handshake; wired to package.json via PACKAGE_ROOT so version detection (peer_info() / toko figma status) works. Upstream has the same bug at its one stdio constructor → #95 |
+| `ouvpoytt` | fix(local): un-hardcode serverInfo.version | Both McpServer constructors reported a hardcoded "0.1.0" in the MCP handshake; wired to package.json via PACKAGE_ROOT so version detection (peer_info() / a client's status check) works. Upstream has the same bug at its one stdio constructor → #95 |
 | `lkvvzxyv` | chore: publish as @muloka/figma-console-mcp (v0.1.0) | Fork identity — scoped package name, `forkedFrom` block, scoped `publishConfig`. Root cause of the recurring `package.json` conflict on every sync |
 | `rynzsmvy` | docs: fork notice in README + npm badge fix (v0.1.1) | Fork identity — the install-this-fork banner at README:11. Touches a file upstream edits constantly; expect conflicts |
 | `uowxnlqo` | docs(spec): plugin manifest discoverability design | Fork infrastructure — `docs/superpowers/specs/`. **Spec CLOSED**: §1 shipped as `zkvupptq` in v0.2.0, §2 cut, remainder delegated to upstream #100/#101 rather than patching README/setup.md locally (both filed, neither fixed) |
 | `uxyxzrkw` | docs(spec): CI workflow design | Fork infrastructure — `docs/superpowers/specs/`. Implemented by `xozospno`/`kpotskxm`/`vlrkronl` |
 | `xozospno` | ci: GitHub Actions workflow | **New file** `.github/workflows/ci.yml` — upstream has only `FUNDING.yml` there, so zero conflict surface. Node 22/24 test matrix + per-file typecheck ratchet. `push` on main is the post-sync trigger |
 | `kpotskxm` | chore: engines.node >=22, lockfile identity | `package.json` + `package-lock.json`. Both already carry fork delta, so this adds hunks to existing conflicts rather than new ones. Also synced the lockfile's stale `name`/`version` (still said `figma-console-mcp@1.35.0` from before the v0.1.0 rename) |
-| `tkywkxyq` | fix(variables): page/pageSize under format=full | **PROVISIONAL — first delta in `src/core/figma-tools.ts`.** Carried only to unblock tokotoko work that cannot be evaluated until paging functions. **Drop when** upstream fixes #98, or the tokotoko use case concludes it is unnecessary. That file saw 11 upstream commits in the 3 months to 2026-07, so expect to re-resolve this on most syncs — weigh dropping it before re-resolving twice. Guarded by 4 tests in `tests/figma-tools.test.ts` |
+| `tkywkxyq` | fix(variables): page/pageSize under format=full | **PROVISIONAL — first delta in `src/core/figma-tools.ts`.** Carried only to unblock the consumer's work that cannot be evaluated until paging functions. **Drop when** upstream fixes #98, or the consumer's use case concludes it is unnecessary. That file saw 11 upstream commits in the 3 months to 2026-07, so expect to re-resolve this on most syncs — weigh dropping it before re-resolving twice. Guarded by 4 tests in `tests/figma-tools.test.ts` |
 | `zkvupptq` | feat(local): SETUP section in handshake instructions | Extends the fork-only `MCP_SERVER_INSTRUCTIONS` — see `mnklvnvw`, which owns that constant. ~6 lines telling an agent to read `pluginPath` from `figma_get_status` rather than guess it, and that Figma's import dialog hides the dot-directory on macOS (Cmd+Shift+G to reach it). Upstream's inline instructions at `src/local.ts:156` carry no setup content at all → #101. Implements `uowxnlqo` §1; §2 of that spec was cut |
 | `vlrkronl` | ci: fix ratchet under implicit errexit | GitHub's `shell: bash` is `bash --noprofile --norc -e -o pipefail`; `set -uo pipefail` does not undo the `-e`, so the step died at the first (expected) non-zero tsc. Needs explicit `set +e`. Also actions v4 → v5 |
 | `lqomtprz` | chore: local dev setup (jj workflow, gitignore, notes) | Fork infrastructure |
@@ -172,7 +219,7 @@ into `.notes/specs/` silently emptied its change.
   the zod schema losing its `.default()`s), but it is deliberately temporary:
   - Re-check `southleft/figma-console-mcp#98` on every sync. If upstream has
     fixed it, **abandon `tkywkxyq`** rather than reconciling.
-  - If the tokotoko use case that motivated it concludes paging is not needed,
+  - If the consumer's use case that motivated it concludes paging is not needed,
     abandon it then too. It was carried to make that evaluation possible, not
     because the fork independently needs it.
   - Do NOT extend it to fix #99 (the divergent REST pagination field names).

@@ -110,8 +110,8 @@ function setupStablePluginDir(sourcePluginDir: string): string | null {
 
 /**
  * Server version reported in the MCP handshake's serverInfo.version — read from
- * package.json (not hardcoded) so clients like `toko figma status` can detect
- * which sidecar build they're talking to via peer_info(). Falls back to "0.0.0"
+ * package.json (not hardcoded) so a client's status check can detect
+ * which sidecar build it's talking to via peer_info(). Falls back to "0.0.0"
  * if package.json can't be resolved.
  */
 let SERVER_VERSION = "0.0.0";
