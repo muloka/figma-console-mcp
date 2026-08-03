@@ -204,6 +204,7 @@ Temporary Items
 # Claude Code local settings (user-specific)
 .claude/settings.local.json
 .claude/scripts/
+.claude/hooks/
 
 # Playwright MCP temp files
 .playwright-mcp/
