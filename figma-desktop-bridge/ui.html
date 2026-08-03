@@ -158,6 +158,18 @@
       white-space: nowrap;
     }
 
+    /* ===== Build version line — plugin files + server, always visible =====
+       Deliberately NOT gated on connection state: "is my imported plugin
+       stale?" is asked precisely when nothing is connected. */
+    .status-version {
+      display: flex;
+      align-items: center;
+      padding-left: 17px; /* same optical alignment as .status-meta */
+      font-size: 9px;
+      color: var(--figma-color-text-secondary, rgba(255, 255, 255, 0.5));
+      white-space: nowrap;
+    }
+
     /* Visible recovery instruction for the ERROR state */
     .status-error-hint {
       display: none; /* shown from JS while in the error state */
@@ -484,6 +496,9 @@
       <span id="status-last-action"></span>
     </div>
 
+    <!-- Build versions — imported plugin files + the sidecar they talk to -->
+    <div class="status-version" id="status-version" title="Plugin = the files imported into Figma. Server = the npx sidecar this plugin is connected to."></div>
+
     <!-- Visible recovery instruction, shown only in the error state -->
     <div class="status-error-hint" id="status-error-hint">Close this window and reopen the plugin.</div>
 
@@ -601,6 +616,25 @@
       if (hint) hint.style.display = bridgeError ? 'block' : 'none';
 
       renderStatusMeta(live);
+      renderVersionLine();
+    }
+
+    // Build-version line under the meta row. Two independently-versioned
+    // halves, so both are labelled rather than merged into one number:
+    //   Plugin — figma-desktop-bridge/code.js, cached by Figma at import time
+    //            and only bumped on releases that actually touch plugin files
+    //   Server — the npx sidecar's package version, learned over the wire
+    // Either can be unknown: the plugin version arrives from code.js ~500ms
+    // after open, the server version only once a connection lands. An unknown
+    // half renders "—" rather than a stale or guessed number.
+    function renderVersionLine() {
+      var el = document.getElementById('status-version');
+      if (!el) return;
+      var server = (typeof window.__wsServerVersion === 'function')
+        ? window.__wsServerVersion()
+        : null;
+      el.textContent = 'Plugin ' + (PLUGIN_VERSION || '—') +
+                       ' · Server ' + (server ? 'v' + server : '—');
     }
 
     // Small always-visible line under the pill: "Connected to N AI app(s)"
@@ -1658,6 +1692,17 @@
       // The health discovery loop is armed whenever the user hasn't paused —
       // used by the status pill to show "Looking for your AI app…" honestly.
       window.__wsIsDiscoveryActive = function() { return !userPaused; };
+      // Version of the server we're actually attached to, for the version
+      // line. Reads from the first LIVE connection so a stale entry that
+      // hasn't been reaped yet can't report a version we're no longer using.
+      // Null when nothing is connected — the line then renders "Server —".
+      window.__wsServerVersion = function() {
+        for (var i = 0; i < activeConnections.length; i++) {
+          var c = activeConnections[i];
+          if (c.ws.readyState === 1 && c.serverVersion) return c.serverVersion;
+        }
+        return null;
+      };
 
       // ======================================================================
       // HTTP /health DISCOVERY LOOP — replaces the old zero-connection-gated
@@ -1909,7 +1954,13 @@
     // STAGE 2 — LOG PANEL, INFO PANEL, CONNECTION, CLIPBOARD EXPORT
     // ============================================================================
 
-    var PLUGIN_VERSION = 'v0.3.0';
+    // Populated from code.js's own PLUGIN_VERSION via GET_FILE_INFO_RESULT
+    // (fired unconditionally ~500ms after open, so it does not need a server
+    // connection). Deliberately starts null rather than a hardcoded literal:
+    // a literal here is not touched by scripts/release.sh, and the last one
+    // drifted to the package version (0.3.0) while code.js reported the
+    // plugin version (1.35.0) — two different numbers for the same field.
+    var PLUGIN_VERSION = null;
     var logHistory = [];
     var logEntriesEl = null;
     var _ctaBtn = null;
@@ -1977,7 +2028,7 @@
       });
       var text = 'Figma Desktop Bridge - Session Log\n'
         + 'Exported: ' + new Date().toISOString() + '\n'
-        + 'Plugin: ' + PLUGIN_VERSION + '\n'
+        + 'Plugin: ' + (PLUGIN_VERSION || 'unknown') + '\n'
         + '------------------------------------------------\n'
         + lines.join('\n') + '\n';
       var ta = document.createElement('textarea');
@@ -2229,6 +2280,11 @@
       if (_ctaBtn.style.display === 'none') _ctaBtn.style.display = '';
     }
 
+    // Paint the version line once up front so its row reserves height before
+    // the first reconcile tick, instead of popping in and reflowing the
+    // auto-sized plugin window at 500ms.
+    renderVersionLine();
+
     // Periodic reconcile of CTA + status pill/meta (cheap, <1ms). Also
     // refreshes "Last action: Xs ago" via renderStatusMeta inside
     // deriveAndRenderStatus.
@@ -2238,9 +2294,11 @@
     }, 2000);
 
     // One-shot on first ready: render honest initial state and capture the
-    // plugin's own version (used in the Activity export header) without
-    // logging a command line — hence the unwrapped sender. The version is
-    // read from the GET_FILE_INFO_RESULT handler below.
+    // plugin's own version (shown in the version line and the Activity export
+    // header) without logging a command line — hence the unwrapped sender.
+    // The version is read from the GET_FILE_INFO_RESULT handler below. This
+    // fires regardless of connection state, which is what lets the version
+    // line show the plugin half while no server is attached.
     setTimeout(function() {
       reconcileCta();
       deriveAndRenderStatus();
@@ -2707,6 +2765,9 @@
           var fileInfo = msg.fileInfo || msg.data;
           if (fileInfo && fileInfo.pluginVersion) {
             PLUGIN_VERSION = 'v' + fileInfo.pluginVersion;
+            // Paint immediately instead of waiting up to 2s for the next
+            // reconcile tick — this is the first moment the version is known.
+            if (typeof renderVersionLine === 'function') renderVersionLine();
           }
           handleResult('GET_FILE_INFO', 'fileInfo');
           break;

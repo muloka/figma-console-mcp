@@ -3648,8 +3648,12 @@ Without libraryFileKey/libraryFileUrl, searches the currently open file (local c
 	async start(): Promise<void> {
 		try {
 			logger.info(
-				{ config: this.config },
-				"Starting Figma Console MCP (Local Mode)",
+				{
+					version: SERVER_VERSION,
+					bundledPluginVersion: getBundledPluginVersion(),
+					config: this.config,
+				},
+				`Starting Figma Console MCP v${SERVER_VERSION} (Local Mode)`,
 			);
 
 			// Copy plugin files to stable directory (~/.figma-console-mcp/plugin/)
