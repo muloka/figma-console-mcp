@@ -1053,8 +1053,23 @@ collection.renameMode(defaultModeId, modeNames[0]);
 modeMap[modeNames[0]] = defaultModeId;
 
 for (let i = 1; i < modeNames.length; i++) {
-  const newModeId = collection.addMode(modeNames[i]);
-  modeMap[modeNames[i]] = newModeId;
+  try {
+    const newModeId = collection.addMode(modeNames[i]);
+    modeMap[modeNames[i]] = newModeId;
+  } catch (err) {
+    // Plan-limit (or other) failure AFTER the collection exists: remove the
+    // orphan so a retry cannot create twins, and hand back the ceiling the
+    // error names ("in addMode: Limited to N modes only").
+    const msg = String(err && err.message || err);
+    const m = msg.match(/Limited to (\\d+) modes/);
+    try { collection.remove(); } catch (removeErr) {}
+    return {
+      error: 'Mode "' + modeNames[i] + '" could not be added: ' + msg + ' — collection rolled back, nothing was created.',
+      planModeLimit: m ? parseInt(m[1], 10) : null,
+      requested: modeNames.length,
+      rolledBack: true
+    };
+  }
 }
 
 // Step 3: Create all variables FIRST (values apply in a second pass so

@@ -78,4 +78,17 @@ describe("figma_setup_design_tokens structured script errors", () => {
 		expect(result.isError).toBeUndefined();
 		expect(body(result).success).toBe(true);
 	});
+
+	it("the embedded script rolls back the collection and parses the plan limit", async () => {
+		const executeCodeViaUI = jest
+			.fn()
+			.mockResolvedValue({ success: true, result: { created: 0, failed: 0, results: [], warnings: [] } });
+		const server = createMockServer();
+		registerWriteTools(server as any, async () => ({ executeCodeViaUI }));
+		await server._getTool("figma_setup_design_tokens").handler(SETUP_ARGS);
+		const script: string = executeCodeViaUI.mock.calls[0][0];
+		expect(script).toContain("collection.remove()");
+		expect(script).toContain("planModeLimit");
+		expect(script).toContain("Limited to (\\d+) modes");
+	});
 });
