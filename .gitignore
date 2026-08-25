@@ -229,3 +229,4 @@ Temporary Items
 
 # Bug reports (local drafts)
 .bugs/
+.dev-plugin-fresh/

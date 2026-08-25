@@ -41,6 +41,30 @@ describe("Desktop Bridge plugin assets parse", () => {
 		assertParses(code, "figma-desktop-bridge/code.js");
 	});
 
+	it("code.js contains nothing Figma's import-expression scanner rejects", () => {
+		// Figma's plugin loader refuses code.js with "SyntaxError: possible
+		// import expression rejected" when the RAW TEXT (comments included)
+		// matches its scanner. This is the EXACT regex from Figma's bundle
+		// (extracted 2026-08-25 from 2672-34a06396b425865c.min.js:
+		// `let L=/^(.*)\bimport\s*(\(|\/\/|\/\*|<!--|-->)/m`): the word
+		// `import` followed by optional whitespace (newlines included) and
+		// then `(`, a comment opener, or an HTML comment marker. Node parsing
+		// cannot catch this — the file that triggered it live was valid JS
+		// whose comment ended a line with "token-import" directly above
+		// another `//` comment line. (Figma's reported line number is always
+		// 1 — their `(.*)` capture cannot span newlines — so this guard
+		// reports the real line instead.)
+		const code = fs.readFileSync(path.join(PLUGIN_DIR, "code.js"), "utf8");
+		const scanner = /^(.*)\bimport\s*(\(|\/\/|\/\*|<!--|-->)/m;
+		const m = scanner.exec(code);
+		if (m) {
+			const line = code.slice(0, m.index).split("\n").length;
+			throw new Error(
+				`Figma-loader bait at code.js line ${line}: ${JSON.stringify(m[0].slice(-90))} — reword so no standalone "import" is followed (even across newlines) by "(", "//", "/*", "<!--", or "-->"`,
+			);
+		}
+	});
+
 	it("ui.html contains at least one inline <script> block", () => {
 		const html = fs.readFileSync(path.join(PLUGIN_DIR, "ui.html"), "utf8");
 		expect(extractScriptBlocks(html).length).toBeGreaterThan(0);

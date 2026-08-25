@@ -748,8 +748,8 @@ figma.ui.onmessage = async (msg) => {
 
     } catch (error) {
       // Mode setup failed after the collection was created — remove the
-      // orphan so a retry cannot create twins (mirrors the token-import
-      // create phase's rollback).
+      // orphan so a retry cannot create twins (mirrors the rollback in the
+      // tokens-tools create phase).
       var ccRolledBack = false;
       if (newCollection) {
         try { newCollection.remove(); ccRolledBack = true; } catch (removeErr) {}
