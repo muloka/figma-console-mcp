@@ -35,7 +35,7 @@ function makeWs(readyState = 1): FakeWs {
  */
 function dispatch(
 	handler: (params: any) => any,
-	message: { id: number | string; method: string; params?: any },
+	message: { id: number | string; method: string; params?: any; timeoutMs?: number },
 	activeWs: FakeWs,
 	port: number,
 	warn: (msg: string) => void,
@@ -43,6 +43,11 @@ function dispatch(
 	let cleared = false;
 	let handlerSettled = false;
 	let handlerTimeoutId: ReturnType<typeof setTimeout> | null = null;
+	const requestedBudget =
+		typeof message.timeoutMs === "number" && isFinite(message.timeoutMs) && message.timeoutMs > 0
+			? message.timeoutMs
+			: null;
+	const HANDLER_TIMEOUT_MS = requestedBudget ? Math.min(requestedBudget + 5000, 310000) : 30000;
 	const handlerPromise = Promise.resolve(handler(message.params || {}));
 	const timeoutPromise = new Promise((_, reject) => {
 		handlerTimeoutId = setTimeout(() => {
@@ -230,6 +235,74 @@ describe("Desktop Bridge handler dispatch", () => {
 		);
 	});
 
+	it("honors the frame's timeoutMs budget (+5s margin) instead of the 30s default", async () => {
+		jest.useFakeTimers();
+		const ws = makeWs(1);
+		const { done } = dispatch(
+			() => new Promise(() => {}), // never settles
+			{ id: "t1", method: "SLOW_METHOD", timeoutMs: 120000 },
+			ws,
+			9223,
+			jest.fn(),
+		);
+
+		jest.advanceTimersByTime(30001);
+		expect(ws.sent).toHaveLength(0);
+
+		jest.advanceTimersByTime(95000); // total 125001 > 120000 + 5000
+		await done;
+
+		expect(ws.sent).toHaveLength(1);
+		const payload = JSON.parse(ws.sent[0]);
+		expect(payload.id).toBe("t1");
+		expect(payload.error).toMatch(/did not respond within 125000ms/);
+	});
+
+	it("defaults to 30000 when timeoutMs is absent or invalid", async () => {
+		jest.useFakeTimers();
+
+		const wsAbsent = makeWs(1);
+		const { done: doneAbsent } = dispatch(
+			() => new Promise(() => {}),
+			{ id: "t2", method: "SLOW_METHOD" },
+			wsAbsent,
+			9223,
+			jest.fn(),
+		);
+		jest.advanceTimersByTime(30001);
+		await doneAbsent;
+		expect(JSON.parse(wsAbsent.sent[0]).error).toMatch(/30000ms/);
+
+		const wsInvalid = makeWs(1);
+		const { done: doneInvalid } = dispatch(
+			() => new Promise(() => {}),
+			{ id: "t3", method: "SLOW_METHOD", timeoutMs: -5 },
+			wsInvalid,
+			9223,
+			jest.fn(),
+		);
+		jest.advanceTimersByTime(30001);
+		await doneInvalid;
+		expect(JSON.parse(wsInvalid.sent[0]).error).toMatch(/30000ms/);
+	});
+
+	it("caps a pathological budget at 310000", async () => {
+		jest.useFakeTimers();
+		const ws = makeWs(1);
+		const { done } = dispatch(
+			() => new Promise(() => {}),
+			{ id: "t4", method: "SLOW_METHOD", timeoutMs: 9999999 },
+			ws,
+			9223,
+			jest.fn(),
+		);
+
+		jest.advanceTimersByTime(310001);
+		await done;
+
+		expect(JSON.parse(ws.sent[0]).error).toMatch(/310000ms/);
+	});
+
 	// Source guard: fail loudly if ui.html's real dispatch drifts from the shape
 	// exercised above (mirrors the #68 connector source guard).
 	it("source guard: ui.html dispatch retains timeout, timer cleanup, and drop logging", async () => {
@@ -240,7 +313,12 @@ describe("Desktop Bridge handler dispatch", () => {
 			"utf8",
 		);
 
-		expect(ui).toContain("var HANDLER_TIMEOUT_MS = 30000;");
+		expect(ui).toContain(
+			"var requestedBudget = (typeof message.timeoutMs === 'number' && isFinite(message.timeoutMs) && message.timeoutMs > 0)",
+		);
+		expect(ui).toContain(
+			"var HANDLER_TIMEOUT_MS = requestedBudget ? Math.min(requestedBudget + 5000, 310000) : 30000;",
+		);
 		expect(ui).toContain("Promise.race([handlerPromise, timeoutPromise])");
 		// The timer must be captured and cleared on settle (the cleanup this test suite adds).
 		expect(ui).toContain("handlerTimeoutId = setTimeout(");

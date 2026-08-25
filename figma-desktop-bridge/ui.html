@@ -1524,8 +1524,16 @@
               return;
             }
 
-            // Call the handler with a safety timeout, then send back the result
-            var HANDLER_TIMEOUT_MS = 30000;
+            // Call the handler with a safety timeout, then send back the result.
+            // The server includes each command's real budget as timeoutMs
+            // (see websocket-server.ts sendCommand); race against that plus a
+            // 5s margin so the command's own wrapper timeout — which produces
+            // the method-specific error — always fires first. No field (older
+            // server) or an invalid value falls back to the old 30s default.
+            var requestedBudget = (typeof message.timeoutMs === 'number' && isFinite(message.timeoutMs) && message.timeoutMs > 0)
+              ? message.timeoutMs
+              : null;
+            var HANDLER_TIMEOUT_MS = requestedBudget ? Math.min(requestedBudget + 5000, 310000) : 30000;
             var handlerSettled = false;
             var handlerTimeoutId = null;
             var handlerPromise = Promise.resolve(handler(message.params || {}));
