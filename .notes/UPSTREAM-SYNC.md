@@ -144,6 +144,8 @@ As of 2026-07-20, synced onto upstream **v1.36.0**:
 | `vlrkronl` | ci: fix ratchet under implicit errexit | GitHub's `shell: bash` is `bash --noprofile --norc -e -o pipefail`; `set -uo pipefail` does not undo the `-e`, so the step died at the first (expected) non-zero tsc. Needs explicit `set +e`. Also actions v4 → v5 |
 | `lqomtprz` | chore: local dev setup (jj workflow, gitignore, notes) | Fork infrastructure |
 | `zlkukozk` | docs: this file + gitignore exception | Fork infrastructure |
+| `ntsuwqqv` | fix: stop the orphan reaper from killing healthy MCP servers | **Cherry-picked upstream commit** (`fbb1cb80`, v1.38.2, TJ's authorship preserved via `jj duplicate`) — not fork-authored. Applied clean; motivated by macOS dual-stack IPv6 but the atomic port-file writes + liveness-before-cleanup are platform-generic. **On next full sync this becomes an empty duplicate — abandon it, don't reconcile** |
+| `rnvmysps` | fix: an older server must not tell a newer plugin to re-import | **Cherry-picked upstream commit** (`e5e2df87`, shipped in v1.39.1 — the v1.39.0 release is its ancestor; "v1.39.0" in its message is the version the bug was observed ON. Authorship preserved). Direction-aware `computePluginUpdateAvailable` + exported `compareSemver`. jj's 3-way merge auto-resolved `tests/plugin-version-sync.test.ts` correctly: fork's `pluginLineageVersion` anchor and renamed lineage test kept, upstream's direction/compareSemver test blocks adopted, and the test's local `compareSemver` helper replaced by the new export. **Abandon as empty on next full sync** |
 
 Changes whose only content is maintaining *this file* are not listed above —
 they would add a row saying they added a row. `zlkukozk` is listed because it
@@ -203,6 +205,16 @@ into `.notes/specs/` silently emptied its change.
 
 ### Watch for next sync
 
+- **Two upstream commits are cherry-picked, not synced** (`ntsuwqqv` = upstream
+  `fbb1cb80` v1.38.2 reaper fix; `rnvmysps` = upstream `e5e2df87` v1.39.1
+  handshake direction fix — see the delta table; NOT v1.39.0, whose release
+  commit is the fix's ancestor). A full sync onto anything ≥
+  v1.39.1 makes both empty — **abandon them** instead of resolving anything.
+  A sync onto exactly v1.39.0 empties only `ntsuwqqv`.
+  `tests/plugin-version-sync.test.ts` now blends fork identity (lineage anchor)
+  with upstream's direction tests and imports `compareSemver` from
+  `websocket-server`; if a future sync conflicts there, that blend is the
+  desired end state.
 - **ui.html handler dispatch** carries a fork-only delta (30s handler timeout,
   timer cleanup, dropped-response logging in the WS `onmessage` path). If
   upstream ever adds its own handler-timeout/robustness code there, expect a
