@@ -3758,12 +3758,18 @@ figma.ui.onmessage = async (msg) => {
 
     } catch (error) {
       var errorMsg = error && error.message ? error.message : String(error);
+      // figma.createX() lands the node on the page immediately; a throw from
+      // font load / resize / fills / appendChild would otherwise strand it.
+      var childRemoved = false;
+      if (typeof newNode !== 'undefined' && newNode) {
+        try { newNode.remove(); childRemoved = true; } catch (removeErr) {}
+      }
       console.error('🌉 [Desktop Bridge] Create child node error:', errorMsg);
       figma.ui.postMessage({
         type: 'CREATE_CHILD_NODE_RESULT',
         requestId: msg.requestId,
         success: false,
-        error: errorMsg
+        error: errorMsg + (childRemoved ? ' (partially-created node was removed)' : '')
       });
     }
   }

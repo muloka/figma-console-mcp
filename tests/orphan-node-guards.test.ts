@@ -1,6 +1,7 @@
 // tests/orphan-node-guards.test.ts
 import * as fs from "fs";
 import * as path from "path";
+import { registerWriteTools } from "../src/core/write-tools";
 
 const codeJs = fs.readFileSync(
 	path.join(__dirname, "..", "figma-desktop-bridge", "code.js"),
@@ -27,5 +28,29 @@ describe("CREATE_CONNECTOR validates endpoints before creating", () => {
 		expect(lookup).toBeGreaterThan(-1);
 		expect(create).toBeGreaterThan(-1);
 		expect(lookup).toBeLessThan(create);
+	});
+});
+
+describe("figma_create_child", () => {
+	it("schema accepts every node type the plugin implements", () => {
+		const tools: Record<string, any> = {};
+		registerWriteTools(
+			{ tool: (n: string, _d: string, s: any, h: any) => (tools[n] = { s, h }) } as any,
+			async () => ({}),
+		);
+		const nodeType = tools["figma_create_child"].s.nodeType;
+		for (const t of ["RECTANGLE", "ELLIPSE", "FRAME", "TEXT", "LINE", "POLYGON", "STAR", "VECTOR"]) {
+			expect(nodeType.safeParse(t).success).toBe(true);
+		}
+		expect(nodeType.safeParse("SLIDE").success).toBe(false);
+	});
+
+	it("plugin catch removes a partially-created node", () => {
+		const h = handlerSlice(
+			"msg.type === 'CREATE_CHILD_NODE'",
+			"CAPTURE_SCREENSHOT",
+		);
+		expect(h).toContain("newNode.remove()");
+		expect(h).toContain("partially-created node was removed");
 	});
 });

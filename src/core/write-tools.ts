@@ -2297,7 +2297,7 @@ After instantiating components, use figma_take_screenshot to verify the result l
 		{
 			parentId: z.string().describe("The parent node ID"),
 			nodeType: z
-				.enum(["RECTANGLE", "ELLIPSE", "FRAME", "TEXT", "LINE"])
+				.enum(["RECTANGLE", "ELLIPSE", "FRAME", "TEXT", "LINE", "POLYGON", "STAR", "VECTOR"])
 				.describe("Type of node to create"),
 			properties: z
 				.object({
