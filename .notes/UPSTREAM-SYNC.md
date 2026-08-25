@@ -148,9 +148,9 @@ As of 2026-07-20, synced onto upstream **v1.36.0**:
 | Change | What | Notes |
 |---|---|---|
 | `mnklvnvw` | feat: Streamable HTTP MCP transport in local mode | Re-ported onto upstream's refactored local.ts (registerTools takes optional target; per-request HTTP servers also get wrapServerForIdentity). **This patch owns `MCP_SERVER_INSTRUCTIONS`** — the fork hoisted the handshake instructions into that constant so the stdio and HTTP `McpServer` constructions could share one string. Upstream has no such symbol; it keeps the same content inline at `src/local.ts:156`. Don't assume upstream owns it when reconciling |
-| `yvxwpsul` | fix(bridge): close handler timeout + log dropped responses | ui.html hunks auto-merged; ui-full.html hunks dropped (upstream deleted that file). Completed by `kxmwyluz` |
+| `yvxwpsul` | fix(bridge): close handler timeout + log dropped responses | ui.html hunks auto-merged; ui-full.html hunks dropped (upstream deleted that file). Completed by `kxmwyluz`. Refined 2026-08-25: the dispatch race now honors a per-command `timeoutMs` carried in the WS frame (+5s margin, 310s cap, 30s default when absent) — see the dispatch-timeout-budget plan |
 | `nnqvstvy` | fix(write-tools): VariableID: alias values | Complements upstream v1.34's {brace.reference} aliases — direct-by-id aliasing in batch create + setup_design_tokens value pass, documented in tool schema |
-| `kxmwyluz` | fix(bridge): clear handler-timeout timer + tests | Finishes `yvxwpsul`: clears the leaked setTimeout on settle. Adds tests/bridge-handler-dispatch.test.ts (7 tests incl. timeout firing + both dropped-response branches) and tests/plugin-assets-parse.test.ts (parses code.js/ui.html/manifest.json — they're outside the TS build, so a syntax error would otherwise reach Figma undetected) |
+| `kxmwyluz` | fix(bridge): clear handler-timeout timer + tests | Finishes `yvxwpsul`: clears the leaked setTimeout on settle. Adds tests/bridge-handler-dispatch.test.ts (7 tests incl. timeout firing + both dropped-response branches) and tests/plugin-assets-parse.test.ts (parses code.js/ui.html/manifest.json — they're outside the TS build, so a syntax error would otherwise reach Figma undetected). bridge-handler-dispatch.test.ts later extended with budget-honoring cases (10 tests) |
 | `ouvpoytt` | fix(local): un-hardcode serverInfo.version | Both McpServer constructors reported a hardcoded "0.1.0" in the MCP handshake; wired to package.json via PACKAGE_ROOT so version detection (peer_info() / a client's status check) works. Upstream has the same bug at its one stdio constructor → #95 |
 | `lkvvzxyv` | chore: publish as @muloka/figma-console-mcp (v0.1.0) | Fork identity — scoped package name, `forkedFrom` block, scoped `publishConfig`. Root cause of the recurring `package.json` conflict on every sync |
 | `rynzsmvy` | docs: fork notice in README + npm badge fix (v0.1.1) | Fork identity — the install-this-fork banner at README:11. Touches a file upstream edits constantly; expect conflicts |
@@ -245,12 +245,18 @@ into `.notes/specs/` silently emptied its change.
   also carries the rollback delta (`collection`→`newCollection`) from the
   mode-limit work. Guarded by tests/orphan-node-guards.test.ts +
   tests/plugin-assets-parse.test.ts.
-- **ui.html handler dispatch** carries a fork-only delta (30s handler timeout,
-  timer cleanup, dropped-response logging in the WS `onmessage` path). If
-  upstream ever adds its own handler-timeout/robustness code there, expect a
-  conflict — reconcile toward one timeout implementation, not two.
+- **ui.html handler dispatch** carries a fork-only delta (per-command budget
+  race — reads `timeoutMs` from the WS frame with a 5s margin and 310s cap,
+  30s default when the field is absent or invalid; plus timer cleanup and
+  dropped-response logging in the WS `onmessage` path). The `timeoutMs` frame
+  field is fork protocol: `websocket-server.ts` sendCommand and the cloud
+  relay DO both include it (one-line deltas each). If upstream ever adds its
+  own handler-timeout/robustness code there, expect a conflict — reconcile
+  toward one timeout implementation, not two.
 - **Fork-only test files** with no upstream counterpart:
-  `tests/bridge-handler-dispatch.test.ts`, `tests/plugin-assets-parse.test.ts`.
+  `tests/bridge-handler-dispatch.test.ts`, `tests/plugin-assets-parse.test.ts`,
+  `tests/orphan-node-guards.test.ts`, `tests/websocket-server-timeout-field.test.ts`,
+  `tests/write-tools-mode-limit.test.ts`, `tests/write-tools-result-guards.test.ts`.
   These should rebase cleanly (new files) but will fail if upstream renames or
   restructures `figma-desktop-bridge/` — the source guards assert specific
   strings in `ui.html` and specific `manifest.json` entry points.
