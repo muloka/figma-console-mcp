@@ -6080,14 +6080,16 @@ figma.ui.onmessage = async (msg) => {
       }
       console.log('🌉 [Desktop Bridge] Creating connector');
 
-      var connector = figma.createConnector();
-
-      // Set start and end endpoints
+      // Validate endpoints FIRST — a stale nodeId is the most common caller
+      // error, and creating the connector before checking guaranteed an
+      // endpoint-less orphan on every such call.
       var startNode = await figma.getNodeByIdAsync(msg.startNodeId);
       var endNode = await figma.getNodeByIdAsync(msg.endNodeId);
 
       if (!startNode) throw new Error('Start node not found: ' + msg.startNodeId);
       if (!endNode) throw new Error('End node not found: ' + msg.endNodeId);
+
+      var connector = figma.createConnector();
 
       connector.connectorStart = {
         endpointNodeId: msg.startNodeId,
