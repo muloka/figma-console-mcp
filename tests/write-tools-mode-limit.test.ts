@@ -91,4 +91,14 @@ describe("figma_setup_design_tokens structured script errors", () => {
 		expect(script).toContain("planModeLimit");
 		expect(script).toContain("Limited to (\\d+) modes");
 	});
+
+	it("modes schema allows up to 40 and rejects 41", () => {
+		const server = createMockServer();
+		registerWriteTools(server as any, async () => ({}));
+		const modesSchema = server._getTool("figma_setup_design_tokens").schema
+			.modes;
+		expect(modesSchema.safeParse(Array(10).fill("m")).success).toBe(true);
+		expect(modesSchema.safeParse(Array(40).fill("m")).success).toBe(true);
+		expect(modesSchema.safeParse(Array(41).fill("m")).success).toBe(false);
+	});
 });

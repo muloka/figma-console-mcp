@@ -992,9 +992,9 @@ return {
 			modes: z
 				.array(z.string())
 				.min(1)
-				.max(4)
+				.max(40)
 				.describe(
-					"Mode names (first becomes default). Example: ['Light', 'Dark']",
+					"Mode names (first becomes default). Example: ['Light', 'Dark']. Your Figma plan's per-collection mode limit applies at RUNTIME (e.g. Professional 10, Organization 20) — exceeding it fails cleanly with the file's real ceiling in planModeLimit and no collection left behind.",
 				),
 			tokens: z
 				.array(

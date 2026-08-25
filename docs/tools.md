@@ -1181,7 +1181,7 @@ figma_setup_design_tokens({
 
 **Parameters:**
 - `collectionName` (required): Name for the new collection
-- `modes` (required): Array of 1-4 mode names (first becomes default)
+- `modes` (required): Array of 1-40 mode names (first becomes default). The file's plan-tier mode limit applies at runtime; exceeding it returns the real ceiling as `planModeLimit` and rolls the collection back.
 - `tokens` (required): Array of 1-100 token definitions, each with:
   - `name` (required): Token name (use `/` for grouping)
   - `resolvedType` (required): `"COLOR"`, `"FLOAT"`, `"STRING"`, or `"BOOLEAN"`
