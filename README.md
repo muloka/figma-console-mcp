@@ -26,6 +26,7 @@
 - Upstream fixes are cherry-picked selectively when they matter to this fork's use cases, with original authorship preserved (so far: the v1.38.2 orphan-reaper fix and the v1.39.1 plugin-update-banner direction fix).
 - Bugs and requests for this fork go to [this repo's issue tracker](https://github.com/muloka/figma-console-mcp/issues) — do not file them upstream.
 - The hosted `*.southleft.com` endpoints referenced in the documentation below are upstream's service, not this fork's.
+- **Plugin re-imports never announce themselves in this fork.** `PLUGIN_VERSION` tracks the vendored upstream lineage (not the fork's `0.x`), so Figma's "update available" banner only ever fires after an upstream sync — never for fork-side plugin changes. When a fork release says `figma-desktop-bridge/` changed (e.g. v0.5.0's orphan cleanup and dispatch budgets), re-import the manifest manually; the upstream re-import guidance further down doesn't account for this.
 - Upstream's docs site and sponsorship: [![Documentation](https://img.shields.io/badge/docs-docs.figma--console--mcp.southleft.com-0D9488)](https://docs.figma-console-mcp.southleft.com) [![Sponsor](https://img.shields.io/badge/Sponsor-southleft-ea4aaa?logo=github-sponsors&logoColor=white)](https://github.com/sponsors/southleft)
 
 ---
