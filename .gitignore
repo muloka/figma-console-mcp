@@ -204,7 +204,10 @@ Temporary Items
 # Claude Code local settings (user-specific)
 .claude/settings.local.json
 .claude/scripts/
-.claude/hooks/
+# Hook handlers stay untracked, but the statusline script must be tracked so
+# jj workspaces (which materialize only tracked files) still get a statusline.
+.claude/hooks/*
+!.claude/hooks/statusline-jj.sh
 
 # Playwright MCP temp files
 .playwright-mcp/
