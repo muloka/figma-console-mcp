@@ -830,7 +830,7 @@ export class FigmaWebSocketServer extends EventEmitter {
         targetFileKey: fileKey,
       });
 
-      const message = JSON.stringify({ id, method, params });
+      const message = JSON.stringify({ id, method, params, timeoutMs });
       try {
         client.ws.send(message);
       } catch (sendError) {
