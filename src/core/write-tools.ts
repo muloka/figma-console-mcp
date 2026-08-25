@@ -160,6 +160,11 @@ Layers: If your code creates helper frames, placeholder nodes, or intermediate l
 						modeId as string,
 						value,
 					);
+					// The bridge resolves plugin failures as {success:false, error} —
+					// it never rejects. Check before trusting the payload (issue #6).
+					if (!result.success) {
+						throw new Error(result.error || "Failed to update variable value");
+					}
 					variable = result.variable;
 					updated.push("value");
 				}
@@ -169,6 +174,14 @@ Layers: If your code creates helper frames, placeholder nodes, or intermediate l
 						variableId,
 						description as string,
 					);
+					if (!result.success) {
+						throw new Error(
+							(result.error || "Failed to set variable description") +
+								(updated.includes("value")
+									? " (note: the value update had already applied)"
+									: ""),
+						);
+					}
 					variable = result.variable || variable;
 					updated.push("description");
 				}
@@ -255,6 +268,9 @@ Layers: If your code creates helper frames, placeholder nodes, or intermediate l
 						valuesByMode,
 					},
 				);
+				if (!result.success) {
+					throw new Error(result.error || "Failed to create variable");
+				}
 
 				return {
 					content: [
@@ -321,6 +337,11 @@ Layers: If your code creates helper frames, placeholder nodes, or intermediate l
 					initialModeName,
 					additionalModes,
 				});
+				if (!result.success) {
+					throw new Error(
+						result.error || "Failed to create variable collection",
+					);
+				}
 
 				return {
 					content: [
@@ -374,6 +395,9 @@ Layers: If your code creates helper frames, placeholder nodes, or intermediate l
 			try {
 				const connector = await getDesktopConnector();
 				const result = await connector.deleteVariable(variableId);
+				if (!result.success) {
+					throw new Error(result.error || "Failed to delete variable");
+				}
 
 				return {
 					content: [
@@ -429,6 +453,11 @@ Layers: If your code creates helper frames, placeholder nodes, or intermediate l
 			try {
 				const connector = await getDesktopConnector();
 				const result = await connector.deleteVariableCollection(collectionId);
+				if (!result.success) {
+					throw new Error(
+						result.error || "Failed to delete variable collection",
+					);
+				}
 
 				return {
 					content: [
@@ -489,6 +518,9 @@ Layers: If your code creates helper frames, placeholder nodes, or intermediate l
 			try {
 				const connector = await getDesktopConnector();
 				const result = await connector.renameVariable(variableId, newName);
+				if (!result.success) {
+					throw new Error(result.error || "Failed to rename variable");
+				}
 
 				return {
 					content: [
@@ -548,6 +580,11 @@ Layers: If your code creates helper frames, placeholder nodes, or intermediate l
 			try {
 				const connector = await getDesktopConnector();
 				const result = await connector.addMode(collectionId, modeName);
+				// Keep the plugin's error text intact — for a plan-limit failure it
+				// carries the file's real ceiling ("in addMode: Limited to N modes only").
+				if (!result.success) {
+					throw new Error(result.error || "Failed to add mode");
+				}
 
 				return {
 					content: [
@@ -616,6 +653,9 @@ Layers: If your code creates helper frames, placeholder nodes, or intermediate l
 					modeId,
 					newName,
 				);
+				if (!result.success) {
+					throw new Error(result.error || "Failed to rename mode");
+				}
 
 				return {
 					content: [
