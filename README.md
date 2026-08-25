@@ -1,20 +1,36 @@
+# @muloka/figma-console-mcp
+
+> An independently maintained fork of [southleft/figma-console-mcp](https://github.com/southleft/figma-console-mcp).
+
+[![npm](https://img.shields.io/npm/v/@muloka/figma-console-mcp)](https://www.npmjs.com/package/@muloka/figma-console-mcp)
+[![MCP](https://img.shields.io/badge/MCP-Compatible-blue)](https://modelcontextprotocol.io/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+**Install:** `npx @muloka/figma-console-mcp` — the `npx figma-console-mcp` commands in the upstream documentation below install *upstream* instead. Versioned independently on a `0.x` line.
+
+## What this fork changes
+
+- **Honest error reporting** — the eight single-op variable/collection/mode write tools check the bridge's result envelope, so a plugin-side failure surfaces its real error text instead of a false success or a masking TypeError
+- **Streamable HTTP transport** in local mode — connect multiple local clients to one running instance ([upstream #48](https://github.com/southleft/figma-console-mcp/issues/48))
+- **`VariableID:` alias support** in `figma_batch_create_variables` and `figma_setup_design_tokens` ([upstream #52](https://github.com/southleft/figma-console-mcp/issues/52))
+- **Bridge robustness** — handler timeout + dropped-response logging in the Desktop Bridge dispatch ([upstream #94](https://github.com/southleft/figma-console-mcp/issues/94))
+- **`page`/`pageSize` honored in `figma_get_variables` `format: "full"`** ([upstream #98](https://github.com/southleft/figma-console-mcp/issues/98))
+- **Plugin + server build versions surfaced** in the Desktop Bridge UI and diagnostics
+- **CI** — Node 22/24 test matrix with a per-file typecheck ratchet
+
+## Relationship to upstream
+
+- Frozen at the upstream **v1.36.0** base — this fork does **not** track upstream releases.
+- Upstream fixes are cherry-picked selectively when they matter to this fork's use cases, with original authorship preserved (so far: the v1.38.2 orphan-reaper fix and the v1.39.1 plugin-update-banner direction fix).
+- Bugs and requests for this fork go to [this repo's issue tracker](https://github.com/muloka/figma-console-mcp/issues) — do not file them upstream.
+- The hosted `*.southleft.com` endpoints referenced in the documentation below are upstream's service, not this fork's.
+- Upstream's docs site and sponsorship: [![Documentation](https://img.shields.io/badge/docs-docs.figma--console--mcp.southleft.com-0D9488)](https://docs.figma-console-mcp.southleft.com) [![Sponsor](https://img.shields.io/badge/Sponsor-southleft-ea4aaa?logo=github-sponsors&logoColor=white)](https://github.com/sponsors/southleft)
+
+---
+
 # Figma Console MCP Server
 
-> ### 🍴 This is a fork
->
-> **`@muloka/figma-console-mcp`** is a fork of [southleft/figma-console-mcp](https://github.com/southleft/figma-console-mcp) with a few agent-focused adjustments not yet in upstream:
->
-> - **Streamable HTTP transport** in local mode — connect multiple local clients to one running instance ([upstream #48](https://github.com/southleft/figma-console-mcp/issues/48))
-> - **`VariableID:` alias support** in `figma_batch_create_variables` and `figma_setup_design_tokens` ([upstream #52](https://github.com/southleft/figma-console-mcp/issues/52))
-> - **Bridge robustness** — handler timeout + dropped-response logging in the Desktop Bridge dispatch ([upstream #94](https://github.com/southleft/figma-console-mcp/issues/94))
->
-> **Install this fork:** `npx @muloka/figma-console-mcp` — the `npx figma-console-mcp` commands below install *upstream* instead. Versioned independently starting at `0.1.0`; currently tracking upstream **v1.35.0**. Everything else in this README is upstream's documentation and applies as written.
-
-[![MCP](https://img.shields.io/badge/MCP-Compatible-blue)](https://modelcontextprotocol.io/)
-[![npm](https://img.shields.io/npm/v/@muloka/figma-console-mcp)](https://www.npmjs.com/package/@muloka/figma-console-mcp)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Documentation](https://img.shields.io/badge/docs-docs.figma--console--mcp.southleft.com-0D9488)](https://docs.figma-console-mcp.southleft.com)
-[![Sponsor](https://img.shields.io/badge/Sponsor-southleft-ea4aaa?logo=github-sponsors&logoColor=white)](https://github.com/sponsors/southleft)
+*Upstream documentation as of the v1.36.0 base — applies as written.*
 
 > **Your design system as an API.** Model Context Protocol server that bridges design and development—giving AI assistants complete access to Figma for **extraction**, **creation**, **debugging**, and **bidirectional token sync**.
 
