@@ -211,7 +211,7 @@ export class PluginRelayDO extends DurableObject {
 
 		// Send command to plugin
 		try {
-			pluginWs.send(JSON.stringify({ id, method, params }));
+			pluginWs.send(JSON.stringify({ id, method, params, timeoutMs }));
 		} catch {
 			return new Response(
 				JSON.stringify({ error: 'Failed to send command to plugin — connection may be stale' }),

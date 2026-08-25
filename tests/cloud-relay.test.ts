@@ -5,7 +5,7 @@
  * and PluginRelayDO behavior in isolation.
  */
 
-import { generatePairingCode } from '../src/core/cloud-websocket-relay';
+import { generatePairingCode, PluginRelayDO } from '../src/core/cloud-websocket-relay';
 import { CloudWebSocketConnector } from '../src/core/cloud-websocket-connector';
 
 // ============================================================================
@@ -33,6 +33,62 @@ describe('generatePairingCode', () => {
 		}
 		// With 6 chars from 30-char alphabet, collision in 100 is astronomically unlikely
 		expect(codes.size).toBeGreaterThanOrEqual(95);
+	});
+});
+
+// ============================================================================
+// PluginRelayDO — command forwarding to the plugin-side WebSocket
+// ============================================================================
+
+describe('PluginRelayDO command forwarding', () => {
+	function createDO() {
+		const send = jest.fn();
+		const fakeWs = { send, close: jest.fn() };
+		const ctx = {
+			getWebSockets: jest.fn(() => [fakeWs]),
+			acceptWebSocket: jest.fn(),
+			storage: {
+				get: jest.fn(),
+				put: jest.fn(),
+				delete: jest.fn(),
+			},
+		};
+		const doInstance = new PluginRelayDO(ctx as any, {} as any);
+		return { doInstance, send };
+	}
+
+	it('includes timeoutMs in the WS frame sent to the plugin', async () => {
+		const { doInstance, send } = createDO();
+
+		const request = new Request('https://relay/relay/command', {
+			method: 'POST',
+			body: JSON.stringify({ method: 'LINT_DESIGN', params: {}, timeoutMs: 120000 }),
+		});
+
+		// Don't await — handleRelayCommand only resolves once the plugin replies
+		// or its own wait-timer fires. We only need the synchronous ws.send call.
+		void doInstance.fetch(request);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(send).toHaveBeenCalledTimes(1);
+		const frame = JSON.parse(send.mock.calls[0][0]);
+		expect(frame.method).toBe('LINT_DESIGN');
+		expect(frame.timeoutMs).toBe(120000);
+	});
+
+	it('defaults the relayed timeoutMs to 15000 when the caller omits it', async () => {
+		const { doInstance, send } = createDO();
+
+		const request = new Request('https://relay/relay/command', {
+			method: 'POST',
+			body: JSON.stringify({ method: 'GET_SLOTS', params: {} }),
+		});
+
+		void doInstance.fetch(request);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		const frame = JSON.parse(send.mock.calls[0][0]);
+		expect(frame.timeoutMs).toBe(15000);
 	});
 });
 
