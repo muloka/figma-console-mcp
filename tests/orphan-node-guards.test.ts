@@ -68,3 +68,10 @@ describe("slides/figjam creators clean up on throw", () => {
 		expect(h).toContain("partially-created node was removed");
 	});
 });
+
+describe("CREATE_STICKIES identifies orphans in failed rows", () => {
+	it("CREATE_STICKIES failed rows carry the created sticky's id", () => {
+		const h = handlerSlice("msg.type === 'CREATE_STICKIES'", "CREATE_CONNECTOR");
+		expect(h).toMatch(/failed\.push\(\{ index: si, id: batchSticky \? batchSticky\.id : undefined,/);
+	});
+});

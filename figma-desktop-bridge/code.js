@@ -6035,28 +6035,31 @@ figma.ui.onmessage = async (msg) => {
       var stickyFontLoaded = false;
 
       for (var si = 0; si < msg.stickies.length; si++) {
+        var batchSticky = null;
         try {
           var spec = msg.stickies[si];
-          var sticky = figma.createSticky();
+          batchSticky = figma.createSticky();
           if (!stickyFontLoaded) {
-            await figma.loadFontAsync(sticky.text.fontName);
+            await figma.loadFontAsync(batchSticky.text.fontName);
             stickyFontLoaded = true;
           }
-          sticky.text.characters = spec.text || '';
+          batchSticky.text.characters = spec.text || '';
 
-          if (typeof spec.x === 'number') sticky.x = spec.x;
-          if (typeof spec.y === 'number') sticky.y = spec.y;
+          if (typeof spec.x === 'number') batchSticky.x = spec.x;
+          if (typeof spec.y === 'number') batchSticky.y = spec.y;
 
           if (spec.color) {
             var sc = __stickyColors[spec.color.toUpperCase()];
             if (sc) {
-              sticky.fills = [{ type: 'SOLID', color: sc }];
+              batchSticky.fills = [{ type: 'SOLID', color: sc }];
             }
           }
 
-          created.push({ id: sticky.id, type: sticky.type, name: sticky.name, x: sticky.x, y: sticky.y });
+          created.push({ id: batchSticky.id, type: batchSticky.type, name: batchSticky.name, x: batchSticky.x, y: batchSticky.y });
         } catch (e) {
-          failed.push({ index: si, error: e.message || String(e) });
+          // A sticky created before the throw EXISTS on the board but is in
+          // neither list — report its id so the caller can find or remove it.
+          failed.push({ index: si, id: batchSticky ? batchSticky.id : undefined, error: e.message || String(e) });
         }
       }
 
