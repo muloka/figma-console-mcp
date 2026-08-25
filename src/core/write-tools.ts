@@ -1213,6 +1213,35 @@ return {
 					};
 				}
 
+				// The script reports handled failures (e.g. mode-limit rollback) by
+				// RETURNING an object with `error` — surface it as an error envelope
+				// with its structured fields instead of spreading it into a success.
+				if (result.result?.error) {
+					const r = result.result;
+					return {
+						content: [
+							{
+								type: "text" as const,
+								text: JSON.stringify({
+									error: r.error,
+									...(r.planModeLimit !== undefined
+										? { planModeLimit: r.planModeLimit }
+										: {}),
+									...(r.requested !== undefined
+										? { requested: r.requested }
+										: {}),
+									...(r.rolledBack !== undefined
+										? { rolledBack: r.rolledBack }
+										: {}),
+									message: "Design token setup failed",
+									hint: "The file's plan limits how many modes a collection can have — see planModeLimit if present.",
+								}),
+							},
+						],
+						isError: true,
+					};
+				}
+
 				return {
 					content: [
 						{
