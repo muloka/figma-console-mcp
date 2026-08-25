@@ -234,6 +234,17 @@ into `.notes/specs/` silently emptied its change.
   with upstream's direction tests and imports `compareSemver` from
   `websocket-server`; if a future sync conflicts there, that blend is the
   desired end state.
+- **code.js now carries fork-only orphan-cleanup deltas** in five handlers:
+  CREATE_CONNECTOR (validate-before-create), CREATE_CHILD_NODE,
+  ADD_TEXT_TO_SLIDE, CREATE_TABLE (tracked-node removal in catch, with the
+  `table`→`ctTable` rename), CREATE_STICKIES (id in failed rows, `sticky`→
+  `batchSticky` in the loop). The nine remaining orphan-capable handlers are
+  deliberately NOT fixed (accepted tail, recorded in origin issue #11) to
+  bound divergence. If upstream adds its own cleanup to any of these
+  handlers, prefer upstream's version and drop ours. CREATE_VARIABLE_COLLECTION
+  also carries the rollback delta (`collection`→`newCollection`) from the
+  mode-limit work. Guarded by tests/orphan-node-guards.test.ts +
+  tests/plugin-assets-parse.test.ts.
 - **ui.html handler dispatch** carries a fork-only delta (30s handler timeout,
   timer cleanup, dropped-response logging in the WS `onmessage` path). If
   upstream ever adds its own handler-timeout/robustness code there, expect a
