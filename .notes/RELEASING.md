@@ -55,8 +55,15 @@ command npm install --package-lock-only
 
 # 2. confirm nothing else moved
 jj diff --stat                           # expect exactly: package.json, package-lock.json
+#    The check is the FILE LIST, not the line count — a different npm version
+#    may normalize lockfile metadata (peer flags etc.) beyond the version
+#    pair. That churn is benign; commit it. (Seen on the 0.4.0 release.)
 grep -o "var PLUGIN_VERSION = '[0-9.]*'" figma-desktop-bridge/code.js
-#    ^ must equal forkedFrom.version (vendored from upstream), NOT the fork version
+#    ^ must never EXCEED forkedFrom.version (vendored from upstream), and is
+#    NEVER the fork's 0.x version. It may legitimately LAG the base when the
+#    base was a server-only upstream release — e.g. base v1.36.0 with
+#    PLUGIN_VERSION 1.35.0 is correct. tests/plugin-version-sync.test.ts
+#    enforces the <= invariant.
 
 # 3. verify
 command npm test && command npm run build:local
@@ -83,8 +90,11 @@ Notes on the non-obvious bits:
 - **Do not add a `CHANGELOG.md` entry.** Both this fork and upstream *prepend* to the
   same location, so any fork entry conflicts on every sync. Put release notes in a
   GitHub Release on `muloka/figma-console-mcp` instead.
-- **No `v*` tags are created.** The fork has none, and step 3b of `release.sh` depends
-  on them — see landmine 1.
+- **`gh release create vX.Y.Z` DOES create a `v0.x` tag** — v0.2.0, v0.3.0, and
+  v0.4.0 all exist. (An earlier revision of this doc claimed no `v*` tags are
+  created; that was wrong the moment step 6 first ran.) Consequence for landmine 1:
+  `release.sh`'s tag lookup now *succeeds*, which makes the script MORE dangerous,
+  not less — see the updated landmine text.
 
 ---
 
@@ -107,9 +117,14 @@ if git rev-parse -q --verify "v$CURRENT_VERSION"; then
 fi
 ```
 
-**No `v0.*` tags exist in this repo.** Every tag is upstream's `v1.x`. So the lookup
-fails, `PLUGIN_FILES_CHANGED` stays `true`, and the script stamps
+**Originally no `v0.*` tags existed in this repo**, so the lookup failed,
+`PLUGIN_FILES_CHANGED` stayed `true`, and the script stamped
 `PLUGIN_VERSION = '<fork version>'` into `figma-desktop-bridge/code.js` — e.g. `0.2.0`.
+**Since v0.2.0+, fork tags DO exist** (GitHub Releases create them), so the lookup now
+*succeeds* and the script diffs `figma-desktop-bridge/` against the last fork release
+instead: any fork-side plugin edit since then (there are some — e.g. the build-version
+surfacing in ui.html) flips `PLUGIN_FILES_CHANGED` and the script still stamps the fork
+version. Either era, same corruption; the tag's existence only changes when it fires.
 
 That is wrong twice over:
 
@@ -128,10 +143,12 @@ you genuinely edited `figma-desktop-bridge/`:
 grep -o "var PLUGIN_VERSION = '[0-9.]*'" figma-desktop-bridge/code.js
 ```
 
-It should equal `forkedFrom.version` (currently `1.35.0`), **not** the fork version.
-Revert it if the script moved it. `tests/plugin-version-sync.test.ts` asserts
-`PLUGIN_VERSION <= forkedFrom.version`, so a wrong-direction bump to `0.x` still passes
-that test — the test cannot catch this. Check by hand.
+It must never exceed `forkedFrom.version` and is never the fork's `0.x` version — it
+may lag the base when the base was a server-only upstream release (currently: base
+`1.36.0`, `PLUGIN_VERSION` `1.35.0`, valid). Revert it if the script moved it.
+`tests/plugin-version-sync.test.ts` asserts `PLUGIN_VERSION <= forkedFrom.version`, so
+a wrong-direction bump to `0.x` still passes that test — the test cannot catch this.
+Check by hand.
 
 ### 2. It writes upstream URLs into fork artifacts
 
@@ -160,7 +177,12 @@ change unless tools were added, which for a fork sync-and-release is rare.
 
 ---
 
-## Release procedure
+## Appendix — the retired script-based procedure
+
+**Superseded by the Minimal release above — kept only so the landmine references
+resolve and so anyone reading old commit messages that cite "phases" can follow
+them. Do not run `scripts/release.sh` (Phase 1); everything a fork release needs
+is in the Minimal procedure.**
 
 ### Phase 0 — preflight
 
@@ -179,14 +201,9 @@ Decide the version:
   from anyone on a caret range.
 - **Features / fixes** → bump the **patch**: `0.2.0 → 0.2.1`.
 
-### Phase 1 — automated mechanical edits
+### Phase 1 — automated mechanical edits (DO NOT RUN — reference only)
 
-```sh
-./scripts/release.sh --version X.Y.Z --dry-run   # always preview first
-./scripts/release.sh --version X.Y.Z
-```
-
-What it does (steps numbered as in the script):
+What the script would do (steps numbered as in the script):
 
 | Step | Action |
 |---|---|
@@ -273,10 +290,16 @@ command npm publish --ignore-scripts --otp=123456
 A failed OTP is harmless. The tarball is built and rejected at the auth step, leaving
 nothing partially published. Just re-run with a fresh code.
 
-### npm token rotation
+### npm auth: fresh machine vs expired token
 
-Granular access tokens expire after 90 days. When the token in `~/.npmrc` expires,
-`npm whoami` returns 401.
+`npm whoami` failing is the release's most common blocker, with two distinct causes:
+
+- **`ENEEDAUTH` — this machine has never logged in.** Hit on 2026-08-25 during the
+  0.4.0 release: the dev environment had migrated to a new machine and npm credentials
+  do not travel with the repo. Fix: `npm login` (interactive browser + 2FA flow — an
+  agent cannot do it; run it yourself).
+- **401 — the token expired.** Granular access tokens expire after 90 days. When the
+  token in `~/.npmrc` expires, `npm whoami` returns 401.
 
 **Hit on 2026-07-20 during the 0.2.0 release** — which is why step 0 of the minimal
 procedure checks it before anything else. `release.sh` has the same precheck for the

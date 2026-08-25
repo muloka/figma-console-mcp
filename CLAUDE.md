@@ -37,7 +37,7 @@ npx tsc --noEmit       # Type-check (pre-existing errors in src/apps/*/ui/mcp-ap
 
 ## Release Process
 
-Before any release, read `.notes/RELEASING.md` and follow all five phases. Run `scripts/release.sh` for automated version/count updates before manual content edits.
+Before any release, read `.notes/RELEASING.md` and follow its **Minimal release** procedure (version bump + lockfile only, verify, push, CI green, publish with `--otp`). **Never run `scripts/release.sh`** — it is upstream's script and corrupts fork artifacts (PLUGIN_VERSION stamping, upstream URLs, doc-wide tool-count rewrites); see the landmines section in RELEASING.md.
 
 ## Known Issues
 
