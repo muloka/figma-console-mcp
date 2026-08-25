@@ -101,4 +101,19 @@ describe("figma_setup_design_tokens structured script errors", () => {
 		expect(modesSchema.safeParse(Array(40).fill("m")).success).toBe(true);
 		expect(modesSchema.safeParse(Array(41).fill("m")).success).toBe(false);
 	});
+
+	it("batch-create failure rows identify already-created variables", async () => {
+		const executeCodeViaUI = jest
+			.fn()
+			.mockResolvedValue({ success: true, result: { created: 0, failed: 0, results: [] } });
+		const server = createMockServer();
+		registerWriteTools(server as any, async () => ({ executeCodeViaUI }));
+		await server._getTool("figma_batch_create_variables").handler({
+			collectionId: "VariableCollectionId:1:2",
+			variables: [{ name: "t", resolvedType: "COLOR" }],
+		});
+		const script: string = executeCodeViaUI.mock.calls[0][0];
+		expect(script).toContain("created: true");
+		expect(script).toContain("valueSet: false");
+	});
 });

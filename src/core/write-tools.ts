@@ -762,8 +762,9 @@ const collection = await figma.variables.getVariableCollectionByIdAsync(collecti
 if (!collection) return { created: 0, failed: vars.length, results: vars.map(v => ({ success: false, name: v.name, error: 'Collection not found: ' + collectionId })) };
 
 for (const v of vars) {
+  let variable = null;
   try {
-    const variable = figma.variables.createVariable(v.name, collection, v.resolvedType);
+    variable = figma.variables.createVariable(v.name, collection, v.resolvedType);
     if (v.description) variable.description = v.description;
     if (v.valuesByMode) {
       for (const [modeId, value] of Object.entries(v.valuesByMode)) {
@@ -778,7 +779,12 @@ for (const v of vars) {
     }
     results.push({ success: true, name: v.name, id: variable.id });
   } catch (err) {
-    results.push({ success: false, name: v.name, error: String(err) });
+    // If createVariable succeeded before the throw, the variable EXISTS,
+    // holding defaults for unset modes — report it so callers can clean
+    // up or complete it instead of retrying into a duplicate.
+    results.push(variable
+      ? { success: false, name: v.name, error: String(err), created: true, id: variable.id, valueSet: false }
+      : { success: false, name: v.name, error: String(err) });
   }
 }
 
@@ -1084,8 +1090,9 @@ const createdByName = {};      // exact name -> variable (this call)
 const createdByLower = {};     // lowercased name -> variable (this call)
 const createdDefs = [];        // { def, variable } for the value pass
 for (const t of tokenDefs) {
+  let variable = null;
   try {
-    const variable = figma.variables.createVariable(t.name, collection, t.resolvedType);
+    variable = figma.variables.createVariable(t.name, collection, t.resolvedType);
     if (t.description) variable.description = t.description;
     createdByName[t.name] = variable;
     createdByLower[t.name.toLowerCase()] = variable;
@@ -1094,7 +1101,12 @@ for (const t of tokenDefs) {
     resultByName[t.name] = entry;
     results.push(entry);
   } catch (err) {
-    results.push({ success: false, name: t.name, error: String(err) });
+    // If createVariable succeeded before the throw, the variable EXISTS,
+    // holding defaults for unset modes — report it so callers can clean
+    // up or complete it instead of retrying into a duplicate.
+    results.push(variable
+      ? { success: false, name: t.name, error: String(err), created: true, id: variable.id, valueSet: false }
+      : { success: false, name: t.name, error: String(err) });
   }
 }
 
