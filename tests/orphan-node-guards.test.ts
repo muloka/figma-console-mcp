@@ -54,3 +54,17 @@ describe("figma_create_child", () => {
 		expect(h).toContain("partially-created node was removed");
 	});
 });
+
+describe("slides/figjam creators clean up on throw", () => {
+	it("ADD_TEXT_TO_SLIDE removes the text node", () => {
+		const h = handlerSlice("msg.type === 'ADD_TEXT_TO_SLIDE'", "ADD_SHAPE_TO_SLIDE");
+		expect(h).toContain("textNode.remove()");
+		expect(h).toContain("partially-created node was removed");
+	});
+
+	it("CREATE_TABLE removes the table", () => {
+		const h = handlerSlice("msg.type === 'CREATE_TABLE'", "CREATE_CODE_BLOCK");
+		expect(h).toContain("ctTable.remove()");
+		expect(h).toContain("partially-created node was removed");
+	});
+});

@@ -6278,16 +6278,16 @@ figma.ui.onmessage = async (msg) => {
       }
       console.log('🌉 [Desktop Bridge] Creating table:', msg.rows, 'x', msg.columns);
 
-      var table = figma.createTable(msg.rows, msg.columns);
+      var ctTable = figma.createTable(msg.rows, msg.columns);
 
-      if (typeof msg.x === 'number') table.x = msg.x;
-      if (typeof msg.y === 'number') table.y = msg.y;
+      if (typeof msg.x === 'number') ctTable.x = msg.x;
+      if (typeof msg.y === 'number') ctTable.y = msg.y;
 
       // Populate cells if data provided
       if (msg.data && Array.isArray(msg.data)) {
         for (var row = 0; row < msg.data.length && row < msg.rows; row++) {
           for (var col = 0; col < msg.data[row].length && col < msg.columns; col++) {
-            var cell = table.cellAt(row, col);
+            var cell = ctTable.cellAt(row, col);
             if (cell && msg.data[row][col] != null) {
               await figma.loadFontAsync(cell.text.fontName);
               cell.text.characters = String(msg.data[row][col]);
@@ -6300,16 +6300,21 @@ figma.ui.onmessage = async (msg) => {
         type: 'CREATE_TABLE_RESULT',
         requestId: msg.requestId,
         success: true,
-        data: { id: table.id, type: table.type, name: table.name, rows: msg.rows, columns: msg.columns }
+        data: { id: ctTable.id, type: ctTable.type, name: ctTable.name, rows: msg.rows, columns: msg.columns }
       });
 
     } catch (error) {
+      // A font-load failure mid cell-loop leaves a half-populated table.
+      var ctTableRemoved = false;
+      if (typeof ctTable !== 'undefined' && ctTable) {
+        try { ctTable.remove(); ctTableRemoved = true; } catch (removeErr) {}
+      }
       console.error('🌉 [Desktop Bridge] Create table error:', error);
       figma.ui.postMessage({
         type: 'CREATE_TABLE_RESULT',
         requestId: msg.requestId,
         success: false,
-        error: error.message || String(error)
+        error: (error.message || String(error)) + (ctTableRemoved ? ' (partially-created node was removed)' : '')
       });
     }
   }
@@ -7169,12 +7174,19 @@ figma.ui.onmessage = async (msg) => {
       });
 
     } catch (error) {
+      // createText() lands on the page; ~7 fallible setters (font load,
+      // textAlign/textCase enums, resize) run before appendChild moves it to
+      // the slide — remove the stranded node on any of their throws.
+      var slideTextRemoved = false;
+      if (typeof textNode !== 'undefined' && textNode) {
+        try { textNode.remove(); slideTextRemoved = true; } catch (removeErr) {}
+      }
       console.error('🌉 [Desktop Bridge] Add text to slide error:', error);
       figma.ui.postMessage({
         type: 'ADD_TEXT_TO_SLIDE_RESULT',
         requestId: msg.requestId,
         success: false,
-        error: error.message || String(error)
+        error: (error.message || String(error)) + (slideTextRemoved ? ' (partially-created node was removed)' : '')
       });
     }
   }
