@@ -60,4 +60,14 @@ describe("Desktop Bridge plugin assets parse", () => {
 		expect(manifest.main).toBe("code.js");
 		expect(manifest.ui).toBe("ui.html");
 	});
+
+	it("CREATE_VARIABLE_COLLECTION rolls back the collection on failure", () => {
+		const code = fs.readFileSync(path.join(PLUGIN_DIR, "code.js"), "utf8");
+		const start = code.indexOf("msg.type === 'CREATE_VARIABLE_COLLECTION'");
+		const end = code.indexOf("msg.type === 'DELETE_VARIABLE'");
+		const handler = code.slice(start, end);
+		expect(start).toBeGreaterThan(-1);
+		expect(handler).toContain("newCollection.remove()");
+		expect(handler).toContain("partially-created collection rolled back");
+	});
 });

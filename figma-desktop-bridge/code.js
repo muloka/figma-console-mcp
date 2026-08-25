@@ -719,40 +719,47 @@ figma.ui.onmessage = async (msg) => {
   // CREATE_VARIABLE_COLLECTION - Create a new variable collection
   // ============================================================================
   else if (msg.type === 'CREATE_VARIABLE_COLLECTION') {
+    var newCollection = null;
     try {
       console.log('🌉 [Desktop Bridge] Creating collection:', msg.name);
 
-      // Create the collection
-      var collection = figma.variables.createVariableCollection(msg.name);
+      newCollection = figma.variables.createVariableCollection(msg.name);
 
       // Rename the default mode if a name is provided
-      if (msg.initialModeName && collection.modes.length > 0) {
-        collection.renameMode(collection.modes[0].modeId, msg.initialModeName);
+      if (msg.initialModeName && newCollection.modes.length > 0) {
+        newCollection.renameMode(newCollection.modes[0].modeId, msg.initialModeName);
       }
 
       // Add additional modes if provided
       if (msg.additionalModes && msg.additionalModes.length > 0) {
         for (var i = 0; i < msg.additionalModes.length; i++) {
-          collection.addMode(msg.additionalModes[i]);
+          newCollection.addMode(msg.additionalModes[i]);
         }
       }
 
-      console.log('🌉 [Desktop Bridge] Collection created:', collection.id);
+      console.log('🌉 [Desktop Bridge] Collection created:', newCollection.id);
 
       figma.ui.postMessage({
         type: 'CREATE_VARIABLE_COLLECTION_RESULT',
         requestId: msg.requestId,
         success: true,
-        collection: serializeCollection(collection)
+        collection: serializeCollection(newCollection)
       });
 
     } catch (error) {
+      // Mode setup failed after the collection was created — remove the
+      // orphan so a retry cannot create twins (mirrors the token-import
+      // create phase's rollback).
+      var ccRolledBack = false;
+      if (newCollection) {
+        try { newCollection.remove(); ccRolledBack = true; } catch (removeErr) {}
+      }
       console.error('🌉 [Desktop Bridge] Create collection error:', error);
       figma.ui.postMessage({
         type: 'CREATE_VARIABLE_COLLECTION_RESULT',
         requestId: msg.requestId,
         success: false,
-        error: error.message || String(error)
+        error: (error.message || String(error)) + (ccRolledBack ? ' (partially-created collection rolled back)' : '')
       });
     }
   }
