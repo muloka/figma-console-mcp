@@ -10,13 +10,15 @@
 
 ## What this fork changes
 
-- **Honest error reporting** — the eight single-op variable/collection/mode write tools check the bridge's result envelope, so a plugin-side failure surfaces its real error text instead of a false success or a masking TypeError
+- **Honest error reporting** — the eight single-op variable/collection/mode write tools check the bridge's result envelope, so a plugin-side failure surfaces its real error text instead of a false success or a masking TypeError; batch-create failure rows identify variables that were created before the throw (`created`/`id`/`valueSet: false`)
+- **Mode-limit safety** — `figma_setup_design_tokens` and `figma_create_variable_collection` roll the collection back on a mode-limit failure instead of orphaning it, and the setup tool returns your file's real ceiling as `planModeLimit`; the schema's stale 4-mode cap is now a 40 sanity bound (current Figma plans allow 10/20/unlimited — the runtime limit governs)
+- **No orphaned nodes on failure** — `figma_create_connector` validates endpoints before creating (a stale nodeId can no longer strand an endpoint-less connector), and create-child / add-text-to-slide / create-table remove their partially-created node on error; batch stickies report the id of any sticky a failed row left behind. `figma_create_child` also gains the POLYGON/STAR/VECTOR types the plugin always supported
+- **Per-command dispatch budgets** — long-running bridge commands (variable refresh and component scans at 300s, lint/audit at 120s, large component sets) no longer get silently cut off at 30s: the server's real timeout rides in each WS frame and the dispatcher honors it, on both local and cloud transports ([upstream #94](https://github.com/southleft/figma-console-mcp/issues/94) lineage)
 - **Streamable HTTP transport** in local mode — connect multiple local clients to one running instance ([upstream #48](https://github.com/southleft/figma-console-mcp/issues/48))
 - **`VariableID:` alias support** in `figma_batch_create_variables` and `figma_setup_design_tokens` ([upstream #52](https://github.com/southleft/figma-console-mcp/issues/52))
-- **Bridge robustness** — handler timeout + dropped-response logging in the Desktop Bridge dispatch ([upstream #94](https://github.com/southleft/figma-console-mcp/issues/94))
 - **`page`/`pageSize` honored in `figma_get_variables` `format: "full"`** ([upstream #98](https://github.com/southleft/figma-console-mcp/issues/98))
 - **Plugin + server build versions surfaced** in the Desktop Bridge UI and diagnostics
-- **CI** — Node 22/24 test matrix with a per-file typecheck ratchet
+- **CI + plugin-asset guards** — Node 22/24 test matrix, a per-file typecheck ratchet, and regression tests that parse the plugin files and run Figma's own import-expression scanner against `code.js` so a comment can never again brick the plugin loader
 
 ## Relationship to upstream
 
