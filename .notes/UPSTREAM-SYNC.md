@@ -27,6 +27,25 @@ rebased forward on every sync.**
 - Consequence: origin `main` history rewrites on every sync (force-push).
   Anything tracking origin must re-sync. Acceptable for this fork.
 
+### Default posture (decided 2026-08-25): frozen base + cherry-picks
+
+Full syncs are no longer the default. As of the v1.36.0 base the fork delta
+(31 commits) is about the size of one month of upstream output (30 commits,
+v1.37→v1.40), and almost all of that upstream work is feature surface the
+fork's consumer never calls. The standing posture is therefore:
+
+- **Hold the v1.36.0 base.** Do not rebase onto new upstream releases on a
+  cadence.
+- **Cherry-pick, don't sync**, when an upstream commit clears the used-10 bar:
+  `jj duplicate -r <upstream-commit> -d <stack-tip>` preserves authorship, and
+  a delta-table row records it with an "abandon as empty on next full sync"
+  note. First uses of this model: `ntsuwqqv` (v1.38.2 reaper) and `rnvmysps`
+  (v1.39.1 handshake direction) — see the table.
+- **Full sync only on a trigger**, not a schedule: an upstream fix to a used-10
+  tool that is too entangled to cherry-pick, or a security issue. The
+  procedure below then applies unchanged, and the cherry-picked duplicates
+  empty out and get abandoned in its step 4.
+
 ## Sync procedure
 
 1. **Fetch:** `jj git fetch --remote upstream`
