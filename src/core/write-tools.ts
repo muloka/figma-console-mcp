@@ -5,12 +5,28 @@ import { createChildLogger } from "./logger.js";
 const logger = createChildLogger({ component: "write-tools" });
 
 /**
+ * Optional target file (TECH-32), on the tools toko drives. Without it a tool
+ * runs in the active file, as before. With it, the connector is built for that
+ * file and every command it sends goes only to that file's plugin.
+ */
+const fileKeyArg = z
+	.string()
+	.optional()
+	.describe(
+		"Run in this file (its fileKey, as figma_list_open_files reports it) instead of the active file. " +
+			"Fails if that file's Desktop Bridge plugin is not connected; never falls back to the active file. " +
+			"Ignores the active file and the target lock. Leave it out to use the active file.",
+	);
+
+/**
  * Register write/manipulation tools that require a Desktop Bridge connector.
  * Used by both local mode (src/local.ts) and cloud mode (src/index.ts).
+ * `getDesktopConnector(fileKey)` returns a connector bound to that file;
+ * with no key, one that follows the active file.
  */
 export function registerWriteTools(
 	server: McpServer,
-	getDesktopConnector: () => Promise<any>,
+	getDesktopConnector: (fileKey?: string) => Promise<any>,
 ) {
 	// ============================================================================
 	// EXECUTION TOOL
@@ -49,10 +65,11 @@ Layers: If your code creates helper frames, placeholder nodes, or intermediate l
 				.describe(
 					"Execution timeout in milliseconds (default: 5000, max: 30000)",
 				),
+			fileKey: fileKeyArg,
 		},
-		async ({ code, timeout }) => {
+		async ({ code, timeout, fileKey }) => {
 			try {
-				const connector = await getDesktopConnector();
+				const connector = await getDesktopConnector(fileKey);
 				const result = await connector.executeCodeViaUI(
 					code,
 					Math.min(timeout, 30000),
@@ -390,10 +407,11 @@ Layers: If your code creates helper frames, placeholder nodes, or intermediate l
 				.describe(
 					"The variable ID to delete (e.g., 'VariableID:123:456'). Get this from figma_get_variables.",
 				),
+			fileKey: fileKeyArg,
 		},
-		async ({ variableId }) => {
+		async ({ variableId, fileKey }) => {
 			try {
-				const connector = await getDesktopConnector();
+				const connector = await getDesktopConnector(fileKey);
 				const result = await connector.deleteVariable(variableId);
 				if (!result.success) {
 					throw new Error(result.error || "Failed to delete variable");
@@ -513,10 +531,11 @@ Layers: If your code creates helper frames, placeholder nodes, or intermediate l
 				.describe(
 					"The new name for the variable. Can include slashes for grouping (e.g., 'colors/primary/background').",
 				),
+			fileKey: fileKeyArg,
 		},
-		async ({ variableId, newName }) => {
+		async ({ variableId, newName, fileKey }) => {
 			try {
-				const connector = await getDesktopConnector();
+				const connector = await getDesktopConnector(fileKey);
 				const result = await connector.renameVariable(variableId, newName);
 				if (!result.success) {
 					throw new Error(result.error || "Failed to rename variable");
@@ -737,10 +756,11 @@ Layers: If your code creates helper frames, placeholder nodes, or intermediate l
 				.min(1)
 				.max(100)
 				.describe("Array of variables to create (1-100)"),
+			fileKey: fileKeyArg,
 		},
-		async ({ collectionId, variables }) => {
+		async ({ collectionId, variables, fileKey }) => {
 			try {
-				const connector = await getDesktopConnector();
+				const connector = await getDesktopConnector(fileKey);
 
 				const script = `
 const results = [];
@@ -884,10 +904,11 @@ return {
 				.min(1)
 				.max(100)
 				.describe("Array of updates to apply (1-100)"),
+			fileKey: fileKeyArg,
 		},
-		async ({ updates }) => {
+		async ({ updates, fileKey }) => {
 			try {
-				const connector = await getDesktopConnector();
+				const connector = await getDesktopConnector(fileKey);
 
 				const script = `
 const results = [];
@@ -1028,10 +1049,11 @@ return {
 				.min(1)
 				.max(100)
 				.describe("Token definitions (1-100)"),
+			fileKey: fileKeyArg,
 		},
-		async ({ collectionName, modes, tokens }) => {
+		async ({ collectionName, modes, tokens, fileKey }) => {
 			try {
-				const connector = await getDesktopConnector();
+				const connector = await getDesktopConnector(fileKey);
 
 				const script = `
 const collectionName = ${JSON.stringify(collectionName)};
@@ -2177,10 +2199,11 @@ After instantiating components, use figma_take_screenshot to verify the result l
 		{
 			nodeId: z.string().describe("The node ID to rename"),
 			newName: z.string().describe("The new name for the node"),
+			fileKey: fileKeyArg,
 		},
-		async ({ nodeId, newName }) => {
+		async ({ nodeId, newName, fileKey }) => {
 			try {
-				const connector = await getDesktopConnector();
+				const connector = await getDesktopConnector(fileKey);
 				const result = await connector.renameNode(nodeId, newName);
 
 				if (!result.success) {

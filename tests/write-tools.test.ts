@@ -8,6 +8,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { z } from "zod";
+
 import { registerWriteTools } from "../src/core/write-tools";
 import {
 	componentSetTimeoutMs,
@@ -157,6 +159,56 @@ describe("Write Tools", () => {
 			expect(result.isError).toBe(true);
 			const parsed = parseResult(result);
 			expect(parsed.hint).toContain("Desktop Bridge");
+		});
+	});
+
+	// ========================================================================
+	// fileKey targeting (TECH-32) — the tools toko drives
+	// ========================================================================
+
+	describe("fileKey targeting", () => {
+		// Minimal valid arguments for each tool that takes a target file.
+		const TARGETABLE: [string, Record<string, unknown>][] = [
+			["figma_execute", { code: "return 1", timeout: 5000 }],
+			["figma_delete_variable", { variableId: "VariableID:1:1" }],
+			["figma_rename_variable", { variableId: "VariableID:1:1", newName: "renamed" }],
+			["figma_batch_create_variables", { collectionId: "VariableCollectionId:1:1", variables: [{ name: "a", resolvedType: "FLOAT" }] }],
+			["figma_batch_update_variables", { updates: [{ variableId: "VariableID:1:1", modeId: "1:0", value: 1 }] }],
+			["figma_setup_design_tokens", { collectionName: "C", modes: ["Light"], tokens: [{ name: "a", resolvedType: "FLOAT", values: { Light: 1 } }] }],
+			["figma_rename_node", { nodeId: "1:1", newName: "renamed" }],
+		];
+
+		let factory: jest.Mock;
+
+		beforeEach(() => {
+			server = createMockServer();
+			factory = jest.fn(async (_fileKey?: string) => mockConnector);
+			registerWriteTools(server as any, factory as any);
+		});
+
+		it.each(TARGETABLE)("%s keeps fileKey through schema validation", (name, args) => {
+			// An argument missing from the schema is stripped, and the call
+			// silently runs in the active file (seen on the 0.5.0 sidecar).
+			const parsed = z.object(server._getTool(name).schema).parse({ ...args, fileKey: "file-a" });
+			expect(parsed.fileKey).toBe("file-a");
+		});
+
+		it.each(TARGETABLE)("%s still validates without fileKey", (name, args) => {
+			expect(() => z.object(server._getTool(name).schema).parse(args)).not.toThrow();
+		});
+
+		it.each(TARGETABLE)("%s asks for a connector bound to the named file", async (name, args) => {
+			await server._getTool(name).handler({ ...args, fileKey: "file-a" });
+
+			expect(factory).toHaveBeenCalled();
+			expect(factory.mock.calls.map((c) => c[0])).toEqual(factory.mock.calls.map(() => "file-a"));
+		});
+
+		it.each(TARGETABLE)("%s without fileKey asks for the active-file connector", async (name, args) => {
+			await server._getTool(name).handler(args);
+
+			expect(factory).toHaveBeenCalled();
+			expect(factory.mock.calls.map((c) => c[0])).toEqual(factory.mock.calls.map(() => undefined));
 		});
 	});
 

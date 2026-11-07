@@ -281,12 +281,13 @@ class LocalFigmaConsoleMCP {
 
 	/**
 	 * Get or create Desktop Connector for write operations.
-	 * Returns the active WebSocket Desktop Bridge connector.
+	 * Returns a connector for the active file, or — with `fileKey` — one bound
+	 * to that file, which refuses rather than falls back if it isn't connected.
 	 */
-	private async getDesktopConnector(): Promise<IFigmaConnector> {
+	private async getDesktopConnector(fileKey?: string): Promise<IFigmaConnector> {
 		if (this.wsServer?.isClientConnected()) {
 			try {
-				const wsConnector = new WebSocketConnector(this.wsServer);
+				const wsConnector = new WebSocketConnector(this.wsServer, fileKey);
 				await wsConnector.initialize();
 				logger.debug("Desktop connector initialized via WebSocket bridge");
 				return wsConnector;
@@ -3074,7 +3075,7 @@ Without libraryFileKey/libraryFileUrl, searches the currently open file (local c
 		// Register all write/manipulation tools (figma_execute, variable CRUD, node mutations,
 		// design-token setup, accessibility audits, etc.). Sourced from src/core/write-tools.ts
 		// so local mode and cloud mode share the same 30 implementations — no risk of drift.
-		registerWriteTools(server, () => this.getDesktopConnector());
+		registerWriteTools(server, (fileKey) => this.getDesktopConnector(fileKey));
 
 		// Register token sync tools — figma_export_tokens and figma_import_tokens.
 		// Replace Style Dictionary and Tokens Studio's export pipeline for the

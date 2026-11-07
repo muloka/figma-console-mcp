@@ -980,7 +980,8 @@ export class FigmaConsoleMCPv3 extends McpAgent {
 		// ================================================================
 		// Cloud Desktop Connector factory
 		// ================================================================
-		const getCloudDesktopConnector = async (): Promise<any> => {
+		// fileKey is passed through only so the connector can refuse it (one paired file).
+		const getCloudDesktopConnector = async (fileKey?: string): Promise<any> => {
 			const env = this.env as Env;
 			const relayDoId = await this.ctx.storage.get<string>('relayDoId');
 			if (!relayDoId) {
@@ -988,7 +989,7 @@ export class FigmaConsoleMCPv3 extends McpAgent {
 			}
 			const doId = env.PLUGIN_RELAY.idFromString(relayDoId);
 			const stub = env.PLUGIN_RELAY.get(doId);
-			const connector = new CloudWebSocketConnector(stub);
+			const connector = new CloudWebSocketConnector(stub, fileKey);
 			await connector.initialize();
 			return connector;
 		};
@@ -1423,14 +1424,15 @@ export default {
 			);
 
 			// Cloud Desktop Connector factory (stateless /mcp path)
-			const getCloudDesktopConnector = async (): Promise<any> => {
+			// fileKey is passed through only so the connector can refuse it (one paired file).
+			const getCloudDesktopConnector = async (fileKey?: string): Promise<any> => {
 				const relayDoId = await env.OAUTH_TOKENS.get(`relay:${bearerToken}`);
 				if (!relayDoId) {
 					throw new Error('No cloud relay session. Call figma_pair_plugin first to pair the Desktop Bridge plugin.');
 				}
 				const doId = env.PLUGIN_RELAY.idFromString(relayDoId);
 				const stub = env.PLUGIN_RELAY.get(doId);
-				const connector = new CloudWebSocketConnector(stub);
+				const connector = new CloudWebSocketConnector(stub, fileKey);
 				await connector.initialize();
 				return connector;
 			};

@@ -142,6 +142,12 @@ describe('CloudWebSocketConnector', () => {
 			const connector = new CloudWebSocketConnector(stub);
 			await expect(connector.initialize()).rejects.toThrow('No plugin connected');
 		});
+
+		it('refuses a target fileKey: the relay pairs with one file and cannot pick another', async () => {
+			const stub = createMockStub({ connected: true });
+			const connector = new CloudWebSocketConnector(stub, 'file-a');
+			await expect(connector.initialize()).rejects.toThrow('file-a');
+		});
 	});
 
 	describe('getTransportType', () => {

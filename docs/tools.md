@@ -728,6 +728,23 @@ figma_get_file_for_plugin({
 
 > **⚠️ Requires Desktop Bridge Plugin**: These tools require the Desktop Bridge plugin running in Figma. In Local Mode, the plugin connects via WebSocket. In Cloud Mode, pair first using `figma_pair_plugin` to connect through the cloud relay.
 
+### Targeting a file (`fileKey`)
+
+*Fork addition.* When the Desktop Bridge plugin is open in several files, these tools take an optional `fileKey` and run only in that file, whichever file is active and even when the target is locked: `figma_execute`, `figma_setup_design_tokens`, `figma_batch_create_variables`, `figma_batch_update_variables`, `figma_delete_variable`, `figma_rename_variable`, `figma_rename_node`.
+
+- Leave `fileKey` out to use the active file, as before.
+- If that file's plugin isn't connected, the call is refused and nothing runs. The error names the file and lists the connected files with their keys. It never falls back to the active file.
+- `figma_list_open_files` lists the connected files and their keys.
+- Local Mode only. The cloud relay pairs with a single file, so it refuses a `fileKey`.
+
+```javascript
+figma_rename_node({
+  nodeId: "123:456",
+  newName: "Header Section",
+  fileKey: "aBcD1234EfGh5678"
+})
+```
+
 ### `figma_execute`
 
 **The Power Tool** - Execute any Figma Plugin API code to create designs, modify elements, or perform complex operations.

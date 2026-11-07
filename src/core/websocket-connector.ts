@@ -55,11 +55,35 @@ export function componentSetTimeoutMs(params: {
   return Math.min(120000, Math.max(30000, count * 1200)) + 5000;
 }
 
-export class WebSocketConnector implements IFigmaConnector {
-  private wsServer: FigmaWebSocketServer;
+/**
+ * The part of the server the connector uses. Kept narrow on purpose: if the
+ * connector starts using another server member, this fails to compile until
+ * fileBoundServer() decides how that member behaves for a bound file.
+ */
+type BridgeServer = Pick<FigmaWebSocketServer, 'sendCommand' | 'isClientConnected'>;
 
-  constructor(wsServer: FigmaWebSocketServer) {
-    this.wsServer = wsServer;
+/**
+ * The server as seen from one file (TECH-32): every command goes to that file's
+ * own plugin connection instead of the active file. sendCommand refuses if that
+ * file isn't connected — it never re-routes to the active file — so the
+ * active-file pointer and the target lock don't apply. Binding here rather than
+ * at each call site covers every connector method, including ones added later.
+ * An explicit per-call targetFileKey still wins.
+ */
+function fileBoundServer(server: FigmaWebSocketServer, fileKey: string): BridgeServer {
+  return {
+    sendCommand: (method, params, timeoutMs, targetFileKey) =>
+      server.sendCommand(method, params, timeoutMs, targetFileKey ?? fileKey),
+    isClientConnected: () => server.isClientConnected(),
+  };
+}
+
+export class WebSocketConnector implements IFigmaConnector {
+  private wsServer: BridgeServer;
+
+  /** With `fileKey`, the connector works only in that file (see fileBoundServer). */
+  constructor(wsServer: FigmaWebSocketServer, fileKey?: string) {
+    this.wsServer = fileKey ? fileBoundServer(wsServer, fileKey) : wsServer;
   }
 
   async initialize(): Promise<void> {

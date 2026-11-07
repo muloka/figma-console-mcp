@@ -17,12 +17,25 @@ interface RelayStub {
 
 export class CloudWebSocketConnector implements IFigmaConnector {
 	private relayStub: RelayStub;
+	private fileKey?: string;
 
-	constructor(relayStub: RelayStub) {
+	/**
+	 * `fileKey` is accepted only so a targeted call can be refused: the relay
+	 * pairs with one file and cannot choose another, and running the call in
+	 * whichever file is paired would be worse than failing (TECH-32).
+	 */
+	constructor(relayStub: RelayStub, fileKey?: string) {
 		this.relayStub = relayStub;
+		this.fileKey = fileKey;
 	}
 
 	async initialize(): Promise<void> {
+		if (this.fileKey) {
+			throw new Error(
+				`fileKey targeting is not supported over the cloud relay, which pairs with one file (asked for ${this.fileKey}). Leave fileKey out to use the paired file.`
+			);
+		}
+
 		const res = await this.relayStub.fetch('https://relay/relay/status');
 		const status = await res.json() as { connected: boolean };
 		if (!status.connected) {

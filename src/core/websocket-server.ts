@@ -795,7 +795,8 @@ export class FigmaWebSocketServer extends EventEmitter {
 
   /**
    * Send a command to a plugin UI and wait for the response.
-   * By default targets the active file. Pass targetFileKey to target a specific file.
+   * By default targets the active file. Pass targetFileKey to target a specific file;
+   * if that file is not connected the command is refused, never re-routed.
    */
   sendCommand(method: string, params: Record<string, any> = {}, timeoutMs = 15000, targetFileKey?: string): Promise<any> {
     return new Promise((resolve, reject) => {
@@ -808,7 +809,9 @@ export class FigmaWebSocketServer extends EventEmitter {
 
       const client = this.clients.get(fileKey);
       if (!client || client.ws.readyState !== WebSocket.OPEN) {
-        reject(new Error('No WebSocket client connected. Make sure the Desktop Bridge plugin is open in Figma.'));
+        reject(new Error(targetFileKey
+          ? this.targetNotConnectedMessage(targetFileKey)
+          : 'No WebSocket client connected. Make sure the Desktop Bridge plugin is open in Figma.'));
         return;
       }
 
@@ -1077,6 +1080,22 @@ export class FigmaWebSocketServer extends EventEmitter {
   // ============================================================================
   // Multi-client methods
   // ============================================================================
+
+  /**
+   * Refusal for a command aimed at a file that is not connected. Agents read
+   * this to decide what to do next, so it names the file asked for and every
+   * file that could be targeted instead.
+   */
+  private targetNotConnectedMessage(fileKey: string): string {
+    const connected = this.getConnectedFiles()
+      .map((f) => `"${f.fileName}" (${f.fileKey})`)
+      .join(', ');
+    return (
+      `File ${fileKey} is not connected to the Desktop Bridge, so nothing was sent. ` +
+      `Connected files: ${connected || 'none'}. ` +
+      `Open the Desktop Bridge plugin in that file, or pass the fileKey of a connected file.`
+    );
+  }
 
   /**
    * Get info about all connected Figma files.

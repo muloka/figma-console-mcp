@@ -1920,6 +1920,100 @@ describe('Multi-client WebSocket', () => {
     });
   });
 
+  // TECH-32: a connector built for one file must reach only that file's
+  // plugin, whatever the active file is, and refuse rather than fall back.
+  describe('connector bound to a file', () => {
+    /**
+     * Connect File A then File B (so B is active). Each plugin answers with
+     * its own fileKey, after an optional per-file delay, and records every
+     * command that reached it.
+     */
+    async function connectTwoFiles(replyDelayMs: Record<string, number> = {}): Promise<Record<string, string[]>> {
+      server = new FigmaWebSocketServer({ port: TEST_PORT });
+      await server.start();
+      const received: Record<string, string[]> = { 'file-a': [], 'file-b': [] };
+      for (const [fileKey, fileName] of [['file-a', 'File A'], ['file-b', 'File B']]) {
+        const c = await connectClient(server, TEST_PORT, { fileKey, fileName });
+        clients.push(c);
+        c.on('message', (data: Buffer) => {
+          const msg = JSON.parse(data.toString());
+          if (msg.id && msg.method) {
+            received[fileKey].push(msg.method);
+            const reply = JSON.stringify({ id: msg.id, result: { success: true, file: fileKey } });
+            setTimeout(() => c.send(reply), replyDelayMs[fileKey] ?? 0);
+          }
+        });
+      }
+      expect(server.getActiveFileKey()).toBe('file-b');
+      return received;
+    }
+
+    test('sends every command to its file, not the active file', async () => {
+      const received = await connectTwoFiles();
+      const connector = new WebSocketConnector(server, 'file-a');
+
+      // Both paths the write tools use: generated code, and dedicated plugin methods.
+      const results = await Promise.all([
+        connector.executeCodeViaUI('return 1', 1000),
+        connector.renameNode('1:1', 'renamed'),
+        connector.renameVariable('VariableID:1:1', 'renamed'),
+        connector.deleteVariable('VariableID:1:1'),
+      ]);
+
+      expect(results.map((r) => r.file)).toEqual(['file-a', 'file-a', 'file-a', 'file-a']);
+      expect(received['file-b']).toEqual([]);
+    });
+
+    // Several toko processes on one sidecar, each working in its own file.
+    test('two bound connectors with commands in flight at once each get their own file\'s replies', async () => {
+      // File A answers slower, so replies arrive in the opposite order to the requests.
+      const received = await connectTwoFiles({ 'file-a': 80, 'file-b': 10 });
+      const toA = new WebSocketConnector(server, 'file-a');
+      const toB = new WebSocketConnector(server, 'file-b');
+
+      const [a1, b1, a2, b2] = await Promise.all([
+        toA.executeCodeViaUI('return 1', 1000),
+        toB.executeCodeViaUI('return 1', 1000),
+        toA.renameNode('1:1', 'renamed'),
+        toB.renameNode('1:1', 'renamed'),
+      ]);
+
+      expect([a1.file, b1.file, a2.file, b2.file]).toEqual(['file-a', 'file-b', 'file-a', 'file-b']);
+      expect(received).toEqual({
+        'file-a': ['EXECUTE_CODE', 'RENAME_NODE'],
+        'file-b': ['EXECUTE_CODE', 'RENAME_NODE'],
+      });
+    });
+
+    test('without a file, follows the active file as before', async () => {
+      const received = await connectTwoFiles();
+      const connector = new WebSocketConnector(server);
+
+      const result = await connector.renameNode('1:1', 'renamed');
+
+      expect(result.file).toBe('file-b');
+      expect(received['file-a']).toEqual([]);
+    });
+
+    test('refuses when its file is not connected, naming it and the files that are, and sends nothing', async () => {
+      const received = await connectTwoFiles();
+      const connector = new WebSocketConnector(server, 'file-zzz');
+
+      const err = await connector.renameNode('1:1', 'renamed').then(
+        () => null,
+        (e: Error) => e,
+      );
+
+      expect(err).toBeInstanceOf(Error);
+      expect(err!.message).toContain('file-zzz');
+      expect(err!.message).toContain('File A');
+      expect(err!.message).toContain('file-a');
+      expect(err!.message).toContain('File B');
+      expect(err!.message).toContain('file-b');
+      expect(received).toEqual({ 'file-a': [], 'file-b': [] });
+    });
+  });
+
   describe('disconnect behavior', () => {
     test('disconnecting one file does not affect others', async () => {
       server = new FigmaWebSocketServer({ port: TEST_PORT });
