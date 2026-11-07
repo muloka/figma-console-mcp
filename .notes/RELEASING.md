@@ -65,8 +65,12 @@ grep -o "var PLUGIN_VERSION = '[0-9.]*'" figma-desktop-bridge/code.js
 #    PLUGIN_VERSION 1.35.0 is correct. tests/plugin-version-sync.test.ts
 #    enforces the <= invariant.
 
-# 3. verify
-command npm test && command npm run build:local
+# 3. clean build + verify — dist/ is packed WHOLE (files: ["dist"]), so build it
+#    from empty with exactly the two targets the package needs
+rm -rf dist && command npm run build:local && command npm run build:apps
+command npm test
+command npm pack --dry-run 2>&1 | grep -c 'dist/cloudflare/'              # must print 0
+command npm pack --dry-run 2>&1 | grep -cE 'dist/apps/.*/mcp-app\.html'   # must print 2
 
 # 4. push, wait for CI green
 jj bookmark set main -r @
@@ -86,6 +90,15 @@ Notes on the non-obvious bits:
   exit codes. Fixed 2026-07-20, but `command npm` is immune regardless.
 - **`build:local`, not `build`** — `npm run build` chains `build:cloudflare`, which
   exits 2 on a known upstream type defect, so `&&` short-circuits and tests never run.
+- **`rm -rf dist`, then `build:local` + `build:apps`** — the package ships whatever
+  sits in `dist/`, and until 0.5.4 nothing checked it. `build:cloudflare` (or
+  `npm run build`) still emits the Worker's tsc output to `dist/cloudflare/` despite
+  its type errors; nothing in the package uses it (wrangler bundles from
+  `src/index.ts`), yet 0.1.0–0.5.0 and 0.5.4 shipped a stale copy, including code
+  later fixed for security. `build:local` does not produce the two MCP App bundles
+  (`dist/apps/*/mcp-app.html`, vite via `build:apps`): 0.1.x–0.3.0, 0.5.1 and 0.5.2
+  shipped without them, so reading those app resources failed with ENOENT. The two
+  `npm pack --dry-run` counts catch both.
 - **`--ignore-scripts`** — `prepublishOnly` runs `npm run build`, same failure.
 - **Do not add a `CHANGELOG.md` entry.** Both this fork and upstream *prepend* to the
   same location, so any fork entry conflicts on every sync. Put release notes in a
