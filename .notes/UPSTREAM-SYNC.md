@@ -165,11 +165,51 @@ As of 2026-07-20, synced onto upstream **v1.36.0**:
 | `zlkukozk` | docs: this file + gitignore exception | Fork infrastructure |
 | `ntsuwqqv` | fix: stop the orphan reaper from killing healthy MCP servers | **Cherry-picked upstream commit** (`fbb1cb80`, v1.38.2, TJ's authorship preserved via `jj duplicate`) — not fork-authored. Applied clean; motivated by macOS dual-stack IPv6 but the atomic port-file writes + liveness-before-cleanup are platform-generic. **On next full sync this becomes an empty duplicate — abandon it, don't reconcile** |
 | `rnvmysps` | fix: an older server must not tell a newer plugin to re-import | **Cherry-picked upstream commit** (`e5e2df87`, shipped in v1.39.1 — the v1.39.0 release is its ancestor; "v1.39.0" in its message is the version the bug was observed ON. Authorship preserved). Direction-aware `computePluginUpdateAvailable` + exported `compareSemver`. jj's 3-way merge auto-resolved `tests/plugin-version-sync.test.ts` correctly: fork's `pluginLineageVersion` anchor and renamed lineage test kept, upstream's direction/compareSemver test blocks adopted, and the test's local `compareSemver` helper replaced by the new export. **Abandon as empty on next full sync** |
+| `ptsyuqzy` | feat(bridge): write tools take an optional fileKey (TECH-32, v0.5.1) | Fork-authored per-file targeting for `figma_execute` + the six token-sync write tools, by binding the connector's server to one file. **Upstream did its own `figma_execute` fileKey** (`0a675df4` + `885b07bf`, v1.39.0) by threading `fileKey` as a third `executeCodeViaUI` argument, later extended to slots and component reads. Two implementations of one feature: a full sync must pick one, not merge both — see the v1.46.0 audit |
+| `rvksstkr` | fix(http): refuse non-loopback Host and Origin on the local HTTP endpoint | Fork-authored. New module `src/core/http-request-guard.ts` (zero conflict surface) + a 2-line hook in the fork-owned `startHttpServer`. Rules follow upstream's `rejectReason()` from its own v1.44.0 endpoint, minus the bearer token. Guarded by `tests/http-request-guard.test.ts` (real HTTP requests). If the fork ever adopts upstream's endpoint, drop this with `mnklvnvw` |
+| `ppkxypkq` | security: no script execution in the a11y scan | **Partial cherry-pick** of upstream `fe3af0b6` (v1.41.0, TJ's authorship): `accessibility-tools.ts` + its test only. The commit's Cloud Mode OAuth / `/sse` work and token-browser escapes were restored away. **On a full sync onto ≥ v1.41.0 this empties — abandon it** |
+| `mplnqyxt` | fix(deps): MCP SDK 1.26 → 1.32.2, staying on zod 3 | `package.json`/lockfile + a `@ts-expect-error` at `FigmaConsoleMCPv3.server` in `src/index.ts`, **copied verbatim from upstream `167799f0`** so the hunk is identical to upstream's and merges clean. `agents` 0.7 (Cloud only) keeps a nested SDK 1.26 that npm audit still reports. On a full sync onto ≥ v1.43.0, take upstream's lockfile (it also moves zod to 4) and abandon this |
+| `uyywqvok` | fix: relay drops resultAnalysis and fileContext on EXECUTE_CODE | **Cherry-picked upstream commit** (`63745813`, shipped in v1.39.0, TJ's authorship). 7 lines in `ui.html`'s `handleResult` — a region the fork's dispatch-budget delta does not touch. Makes TECH-32 targeting verifiable from the response. **Abandon as empty on next full sync** |
 
 Changes whose only content is maintaining *this file* are not listed above —
 they would add a row saying they added a row. `zlkukozk` is listed because it
 created the file; subsequent table-keeping changes are not. Check
 `jj log -r 'main@upstream..main'` if you need the literal stack.
+
+### v1.46.0 audit (2026-11-07) — cherry-picks, no sync
+
+Upstream shipped 102 commits from v1.37.0 to v1.46.0 (2026-07-22 → 2026-10-29).
+Verdict: **stay on the v1.36.0 base**, take a security round as cherry-picks
+(released as 0.5.4). A full sync would mean zod 3→4 across every schema, plugin
+1.35.0→1.41.5, a 543-line `code.js` diff, reconciling two fileKey implementations
+and defusing the stdin-EOF exit below — too much for a fork whose consumer is
+building its replacement.
+
+Taken (rows above): `rvksstkr` (fork-authored, prompted by upstream's endpoint
+having the guard the fork's lacked), `ppkxypkq`, `mplnqyxt`, `uyywqvok`.
+
+**Upstream now fixes several carried fork patches** — they matter only at the
+next full sync, when each fork patch should be abandoned rather than reconciled:
+
+| Upstream | Fork patch it supersedes | Caveat |
+|---|---|---|
+| `16b03a4c` #98/#99 pagination | `tkywkxyq` + its 4 tests (+ `mkzqlyuy` schema docs) | — |
+| `bcb5a8b8` #52 VariableID aliases | `nnqvstvy` | verify toko's `VariableID:` values still alias |
+| `63be1124` #100/#101 plugin path + hidden-folder tip | `zkvupptq` (partly) | upstream puts the tip in `--print-path`/`get_status`, not the handshake instructions |
+| `6fe29e22` #48 Streamable HTTP | `mnklvnvw` + `rvksstkr` | **different contract**: `FIGMA_MCP_HTTP_PORT` (not `MCP_HTTP_PORT`), port-file `mcpHttpUrl` (not `mcpHttpPort`), stateful sessions. toko discovers by `mcpHttpPort` — adopting it needs toko changes or a compat shim |
+| `088228df` #94 stuck-plugin fail-fast, `figma_execute` cap 300s | partly `yvxwpsul`/`kxmwyluz` lineage | complementary (server-side fail-fast vs the fork's plugin-side dispatch budget) — keep both, reconcile to one timeout story |
+| `0a675df4` + `885b07bf` `figma_execute` fileKey | `ptsyuqzy` (TECH-32) | see row above |
+
+**Considered and left for later:** `088228df` fail-fast (useful to toko's 30s
+calls but conflicts with fork deltas in `websocket-server.ts` and the
+`figma_execute` fileKey lines); `2124b9f2` LRU eviction (fork runs one server);
+`60cf96c6` TIMING/EASING variable types in the batch/setup tools and `584b3871`
+extended collections in `get_variables` — toko feature decisions, not fork
+fixes (toko's `type_map` says duration can't be a variable today).
+
+Everything else touched only the unused surface: audit report, component
+changelog, comments, motion/shader/`set_layout` tools, component-set analysis,
+deep extraction, Cloud OAuth, docs.
 
 ### v1.36.0 sync (2026-07-20)
 
@@ -224,6 +264,14 @@ into `.notes/specs/` silently emptied its change.
 
 ### Watch for next sync
 
+- **Never take upstream `81d7e1a9` (exit on stdin EOF, v1.41.0) as-is.** It calls
+  `gracefulExit()` when stdin closes, unconditionally — even with the HTTP
+  endpoint on. toko's sidecar is an HTTP-only daemon; launched with stdin closed
+  (`nohup`, `</dev/null`, a service manager) it would exit at once. A full sync
+  must guard it on HTTP mode. `c8021719` (sync stdio logging) is its companion.
+- **More cherry-picks to abandon as empty on a full sync onto ≥ v1.43.0**:
+  `ppkxypkq`, `mplnqyxt`, `uyywqvok` (see the delta table and the v1.46.0 audit).
+  `ppkxypkq` is partial, so it empties only once upstream's whole `fe3af0b6` is in.
 - **Two upstream commits are cherry-picked, not synced** (`ntsuwqqv` = upstream
   `fbb1cb80` v1.38.2 reaper fix; `rnvmysps` = upstream `e5e2df87` v1.39.1
   handshake direction fix — see the delta table; NOT v1.39.0, whose release
