@@ -51,7 +51,6 @@ import { WebSocketConnector } from "./core/websocket-connector.js";
 import {
 	DEFAULT_WS_PORT,
 	getPortRange,
-	getPortFilePath,
 	advertisePort,
 	unadvertisePort,
 	registerPortCleanup,
@@ -61,6 +60,7 @@ import {
 	cleanupOrphanedProcesses,
 	evictOldestInstance,
 	refreshPortAdvertisement,
+	setAdvertisedMcpHttpPort,
 	HEARTBEAT_INTERVAL_MS,
 } from "./core/port-discovery.js";
 import { registerTokenBrowserApp } from "./apps/token-browser/server.js";
@@ -3873,15 +3873,11 @@ Without libraryFileKey/libraryFileUrl, searches the currently open file (local c
 			// Start optional Streamable HTTP MCP server (if MCP_HTTP_PORT is set)
 			await this.startHttpServer();
 
-			// Update port discovery file with HTTP port if both WS and HTTP are active
+			// Add the HTTP port to the port discovery file if both WS and HTTP are active.
+			// Through port-discovery's record, so the heartbeat keeps it if the file is
+			// rewritten or re-created (a one-off edit here was lost on the first re-create).
 			if (this.mcpHttpPort && this.wsActualPort) {
-				const portFilePath = getPortFilePath(this.wsActualPort);
-				try {
-					const raw = readFileSync(portFilePath, 'utf-8');
-					const data = JSON.parse(raw);
-					data.mcpHttpPort = this.mcpHttpPort;
-					writeFileSync(portFilePath, JSON.stringify(data, null, 2));
-				} catch { /* best-effort — port file update is non-critical */ }
+				setAdvertisedMcpHttpPort(this.wsActualPort, this.mcpHttpPort);
 			}
 
 			// Create stdio transport

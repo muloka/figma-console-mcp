@@ -33,6 +33,7 @@ import {
   startPeriodicReaper,
   evictOldestInstance,
   refreshPortAdvertisement,
+  setAdvertisedMcpHttpPort,
   isStaleInstance,
   PortFileData,
 } from '../src/core/port-discovery.js';
@@ -930,6 +931,49 @@ describe('Reaper self-harm regressions', () => {
         expect(existsSync(filePath)).toBe(false);
         refreshPortAdvertisement(port);
         expect(existsSync(filePath)).toBe(false);
+      } finally {
+        try { unlinkSync(filePath); } catch { /* ignore */ }
+      }
+    });
+
+    // Without mcpHttpPort, clients that discover the server through this file
+    // (toko) see its HTTP transport as disabled until the server restarts.
+    it('keeps the HTTP port and the original startedAt when it re-creates a deleted file', () => {
+      const port = TEST_PORT_BASE + 26;
+      const filePath = getPortFilePath(port);
+      jest.useFakeTimers({ now: Date.parse('2026-01-01T00:00:00.000Z') });
+      try {
+        advertisePort(port, 'localhost');
+        setAdvertisedMcpHttpPort(port, 3333);
+        expect(readPortFile(port)?.mcpHttpPort).toBe(3333);
+
+        unlinkSync(filePath); // e.g. another process cleaning a shared tmpdir
+        jest.setSystemTime(Date.parse('2026-01-01T01:00:00.000Z'));
+        refreshPortAdvertisement(port);
+
+        const recreated = readPortFile(port);
+        expect(recreated?.mcpHttpPort).toBe(3333);
+        expect(recreated?.startedAt).toBe('2026-01-01T00:00:00.000Z');
+        expect(recreated?.lastSeen).toBe('2026-01-01T01:00:00.000Z');
+        expect(recreated?.pid).toBe(process.pid);
+      } finally {
+        jest.useRealTimers();
+        try { unlinkSync(filePath); } catch { /* ignore */ }
+      }
+    });
+
+    it('puts the HTTP port back if our own file was rewritten without it', () => {
+      const port = TEST_PORT_BASE + 27;
+      const filePath = getPortFilePath(port);
+      try {
+        advertisePort(port, 'localhost');
+        setAdvertisedMcpHttpPort(port, 3333);
+        const { mcpHttpPort: _dropped, ...withoutHttpPort } = readPortFile(port)!;
+        writeFileSync(filePath, JSON.stringify(withoutHttpPort));
+
+        refreshPortAdvertisement(port);
+
+        expect(readPortFile(port)?.mcpHttpPort).toBe(3333);
       } finally {
         try { unlinkSync(filePath); } catch { /* ignore */ }
       }

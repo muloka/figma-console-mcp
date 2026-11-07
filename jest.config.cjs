@@ -24,6 +24,9 @@ module.exports = {
     '^(\\.{1,2}/.*)\\.js$': '$1',
     '^cloudflare:workers$': '<rootDir>/tests/__mocks__/cloudflare-workers.js',
   },
+  // Never share the real tmpdir: a live sidecar's port file lives there.
+  globalSetup: '<rootDir>/tests/setup/isolate-tmpdir.cjs',
+  globalTeardown: '<rootDir>/tests/setup/remove-tmpdir.cjs',
   // Required: WebSocket event listeners in tests can keep Node alive after tests complete
   forceExit: true,
 };

@@ -86,6 +86,8 @@ export interface PortFileData {
   startedAt: string;
   /** Updated by heartbeat every 30s. Missing in port files from pre-v1.12 instances. */
   lastSeen?: string;
+  /** Streamable HTTP MCP port, when the server was started with MCP_HTTP_PORT. Clients find the HTTP transport through it. */
+  mcpHttpPort?: number;
 }
 
 /**
@@ -129,10 +131,28 @@ export function advertisePort(port: number, host: string = 'localhost'): void {
   const filePath = getPortFilePath(port);
   try {
     writePortFileAtomic(filePath, data);
-    advertisedPorts.add(port);
+    advertised.set(port, data);
     logger.info({ port, filePath }, 'Port advertised');
   } catch (error) {
     logger.warn({ port, filePath, error }, 'Failed to write port advertisement file');
+  }
+}
+
+/**
+ * Add the Streamable HTTP port to this instance's port file. It is kept in the
+ * in-process record as well, so a heartbeat that rewrites or re-creates the
+ * file keeps it — otherwise one deletion of the file would hide the HTTP
+ * transport from clients until a restart.
+ */
+export function setAdvertisedMcpHttpPort(port: number, mcpHttpPort: number): void {
+  const record = advertised.get(port);
+  if (!record) return;
+  record.mcpHttpPort = mcpHttpPort;
+  const filePath = getPortFilePath(port);
+  try {
+    writePortFileAtomic(filePath, record);
+  } catch (error) {
+    logger.warn({ port, filePath, error }, 'Failed to write HTTP port to port advertisement file');
   }
 }
 
@@ -167,38 +187,45 @@ function writePortFileAtomic(filePath: string, data: PortFileData): void {
  */
 export function refreshPortAdvertisement(port: number): void {
   const filePath = getPortFilePath(port);
+  const record = advertised.get(port);
   try {
     if (!existsSync(filePath)) {
       // Our file is gone but we are still running and still hold the port.
       // Returning here (the old behaviour) left the process permanently
       // unadvertised — and an unadvertised process holding a port is exactly
-      // what the orphan reaper terminates. Re-advertise instead so the state
-      // is self-healing rather than terminal. Guarded by ownsPort so we never
-      // resurrect a file for a port that has since been taken by someone else.
-      if (ownsPort(port)) advertisePort(port);
+      // what the orphan reaper terminates. Re-create it instead so the state
+      // is self-healing rather than terminal. Only for a port this process
+      // advertised, so we never resurrect a file for a port that has since
+      // been taken by someone else. Written from the in-process record, not a
+      // fresh advertisePort(): that would reset startedAt and drop mcpHttpPort,
+      // hiding the HTTP transport from clients until a restart.
+      if (record) {
+        record.lastSeen = new Date().toISOString();
+        writePortFileAtomic(filePath, record);
+        logger.info({ port, filePath }, 'Port file was missing; re-created from this process\'s record');
+      }
       return;
     }
     const raw = readFileSync(filePath, 'utf-8');
     const data: PortFileData = JSON.parse(raw);
     // Only refresh our own port file
     if (data.pid !== process.pid) return;
-    data.lastSeen = new Date().toISOString();
-    writePortFileAtomic(filePath, data);
+    // Write our record rather than the file's contents, so a field a rewrite
+    // dropped (e.g. mcpHttpPort) comes back on the next beat.
+    const next = record ?? data;
+    next.lastSeen = new Date().toISOString();
+    writePortFileAtomic(filePath, next);
   } catch {
     // Best-effort — heartbeat failures are non-fatal
   }
 }
 
 /**
- * Whether THIS process is the one that advertised `port` in this run.
+ * The port files THIS process advertised in this run, as it last wrote them.
  * Tracked in-process rather than re-derived from the filesystem, because the
  * filesystem is precisely the state we may be repairing.
  */
-const advertisedPorts = new Set<number>();
-
-function ownsPort(port: number): boolean {
-  return advertisedPorts.has(port);
-}
+const advertised = new Map<number, PortFileData>();
 
 /**
  * Remove the port advertisement file for this instance.
@@ -208,7 +235,7 @@ export function unadvertisePort(port: number): void {
   const filePath = getPortFilePath(port);
   // Drop ownership first so a heartbeat racing this shutdown can't re-advertise
   // the file we are deliberately removing.
-  advertisedPorts.delete(port);
+  advertised.delete(port);
   try {
     if (existsSync(filePath)) {
       unlinkSync(filePath);
