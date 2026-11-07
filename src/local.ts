@@ -18,6 +18,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { guardLocalHttpRequest } from "./core/http-request-guard.js";
 import { z } from "zod";
 import { fileURLToPath } from "url";
 import { dirname, resolve, join } from "path";
@@ -3587,6 +3588,8 @@ Without libraryFileKey/libraryFileUrl, searches the currently open file (local c
 		}
 
 		this.httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+			// Before any routing: DNS-rebinding and cross-site requests get a 403.
+			if (!guardLocalHttpRequest(req, res, port)) return;
 			const url = new URL(req.url ?? "/", `http://localhost:${port}`);
 
 			if (url.pathname === "/mcp") {
