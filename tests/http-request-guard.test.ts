@@ -58,7 +58,7 @@ function send(headers: { host: string | null; origin?: string }): Promise<{ stat
 describe('guardLocalHttpRequest', () => {
   describe('lets loopback clients through', () => {
     it.each([
-      // toko's rmcp client connects to http://localhost:{port}/mcp and sends no Origin
+      // a non-browser MCP client connecting to http://localhost:{port}/mcp sends no Origin
       ['localhost', () => `localhost:${port}`],
       ['127.0.0.1', () => `127.0.0.1:${port}`],
       ['[::1]', () => `[::1]:${port}`],

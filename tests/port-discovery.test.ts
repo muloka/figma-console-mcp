@@ -937,7 +937,7 @@ describe('Reaper self-harm regressions', () => {
     });
 
     // Without mcpHttpPort, clients that discover the server through this file
-    // (toko) see its HTTP transport as disabled until the server restarts.
+    // see its HTTP transport as disabled until the server restarts.
     it('keeps the HTTP port and the original startedAt when it re-creates a deleted file', () => {
       const port = TEST_PORT_BASE + 26;
       const filePath = getPortFilePath(port);

@@ -5,7 +5,7 @@ import { createChildLogger } from "./logger.js";
 const logger = createChildLogger({ component: "write-tools" });
 
 /**
- * Optional target file (TECH-32), on the tools toko drives. Without it a tool
+ * Optional target file (TECH-32), on the token-sync write tools. Without it a tool
  * runs in the active file, as before. With it, the connector is built for that
  * file and every command it sends goes only to that file's plugin.
  */

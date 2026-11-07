@@ -32,7 +32,7 @@ function refusalFor(headers: IncomingMessage["headers"], port: number): string |
 	if (!host || !LOOPBACK_HOSTNAMES.has(hostnameOf(host)) || !host.endsWith(`:${port}`)) {
 		return `Host "${host ?? ""}" is not allowed; connect to http://localhost:${port}/mcp`;
 	}
-	// Non-browser clients (toko's rmcp client among them) send no Origin.
+	// Non-browser MCP clients send no Origin.
 	// Browsers always do; allow loopback pages and refuse the rest, including
 	// "null", which does not parse as a URL.
 	const origin = headers.origin;

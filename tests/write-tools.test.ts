@@ -163,7 +163,7 @@ describe("Write Tools", () => {
 	});
 
 	// ========================================================================
-	// fileKey targeting (TECH-32) — the tools toko drives
+	// fileKey targeting (TECH-32) — the token-sync write tools
 	// ========================================================================
 
 	describe("fileKey targeting", () => {

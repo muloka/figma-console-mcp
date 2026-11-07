@@ -1964,7 +1964,7 @@ describe('Multi-client WebSocket', () => {
       expect(received['file-b']).toEqual([]);
     });
 
-    // Several toko processes on one sidecar, each working in its own file.
+    // Several client processes on one server, each working in its own file.
     test('two bound connectors with commands in flight at once each get their own file\'s replies', async () => {
       // File A answers slower, so replies arrive in the opposite order to the requests.
       const received = await connectTwoFiles({ 'file-a': 80, 'file-b': 10 });

@@ -194,18 +194,18 @@ next full sync, when each fork patch should be abandoned rather than reconciled:
 | Upstream | Fork patch it supersedes | Caveat |
 |---|---|---|
 | `16b03a4c` #98/#99 pagination | `tkywkxyq` + its 4 tests (+ `mkzqlyuy` schema docs) | — |
-| `bcb5a8b8` #52 VariableID aliases | `nnqvstvy` | verify toko's `VariableID:` values still alias |
+| `bcb5a8b8` #52 VariableID aliases | `nnqvstvy` | verify the consumer's `VariableID:` values still alias |
 | `63be1124` #100/#101 plugin path + hidden-folder tip | `zkvupptq` (partly) | upstream puts the tip in `--print-path`/`get_status`, not the handshake instructions |
-| `6fe29e22` #48 Streamable HTTP | `mnklvnvw` + `rvksstkr` | **different contract**: `FIGMA_MCP_HTTP_PORT` (not `MCP_HTTP_PORT`), port-file `mcpHttpUrl` (not `mcpHttpPort`), stateful sessions. toko discovers by `mcpHttpPort` — adopting it needs toko changes or a compat shim |
+| `6fe29e22` #48 Streamable HTTP | `mnklvnvw` + `rvksstkr` | **different contract**: `FIGMA_MCP_HTTP_PORT` (not `MCP_HTTP_PORT`), port-file `mcpHttpUrl` (not `mcpHttpPort`), stateful sessions. The consumer discovers by `mcpHttpPort` — adopting it needs consumer-side changes or a compat shim |
 | `088228df` #94 stuck-plugin fail-fast, `figma_execute` cap 300s | partly `yvxwpsul`/`kxmwyluz` lineage | complementary (server-side fail-fast vs the fork's plugin-side dispatch budget) — keep both, reconcile to one timeout story |
 | `0a675df4` + `885b07bf` `figma_execute` fileKey | `ptsyuqzy` (TECH-32) | see row above |
 
-**Considered and left for later:** `088228df` fail-fast (useful to toko's 30s
+**Considered and left for later:** `088228df` fail-fast (useful to the consumer's 30s
 calls but conflicts with fork deltas in `websocket-server.ts` and the
 `figma_execute` fileKey lines); `2124b9f2` LRU eviction (fork runs one server);
 `60cf96c6` TIMING/EASING variable types in the batch/setup tools and `584b3871`
-extended collections in `get_variables` — toko feature decisions, not fork
-fixes (toko's `type_map` says duration can't be a variable today).
+extended collections in `get_variables` — consumer feature decisions, not fork
+fixes (the consumer doesn't store durations as variables today).
 
 Everything else touched only the unused surface: audit report, component
 changelog, comments, motion/shader/`set_layout` tools, component-set analysis,
@@ -266,7 +266,7 @@ into `.notes/specs/` silently emptied its change.
 
 - **Never take upstream `81d7e1a9` (exit on stdin EOF, v1.41.0) as-is.** It calls
   `gracefulExit()` when stdin closes, unconditionally — even with the HTTP
-  endpoint on. toko's sidecar is an HTTP-only daemon; launched with stdin closed
+  endpoint on. The consumer runs the fork as an HTTP-only daemon; launched with stdin closed
   (`nohup`, `</dev/null`, a service manager) it would exit at once. A full sync
   must guard it on HTTP mode. `c8021719` (sync stdio logging) is its companion.
 - **More cherry-picks to abandon as empty on a full sync onto ≥ v1.43.0**:
